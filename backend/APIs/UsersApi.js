@@ -77,6 +77,6 @@ userRoute.get('/lookup/:userId', authMiddleware, async (req, res) => {
 
 // POST /logout - Clear the auth cookie (PROTECTED)
 userRoute.post('/logout', authMiddleware, async (req, res) => {
-  res.clearCookie('token', { httpOnly: true, sameSite: 'lax', secure: false })
+  res.clearCookie('token', { httpOnly: true, sameSite: 'none', secure: true })
   res.status(200).json({ message: 'Logout successful' })
 })
