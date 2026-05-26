@@ -39,7 +39,7 @@ userRoute.post(
       let userCred = req.body
       // authenticate user and get token and user details
       let { token, user } = await authenticate(userCred)
-      res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: true })
+      res.cookie('token', token, { httpOnly: true, sameSite: 'none', secure: true })
       res.status(200).json({ message: 'Login successful', token, user })
     } catch (err) {
       next(err)
