@@ -41,11 +41,11 @@ export default function Messenger() {
     loadConversations()
   }, [])
 
-  // poll the active conversation every 3s so incoming messages appear
+  // poll the active conversation every 12s so incoming messages appear
   useEffect(() => {
     if (!activeId) return
     loadConversation(activeId)
-    const t = setInterval(() => loadConversation(activeId), 3000)
+    const t = setInterval(() => loadConversation(activeId), 12000)
     return () => clearInterval(t)
   }, [activeId])
 
@@ -90,6 +90,7 @@ export default function Messenger() {
       setNewId('')
       setRl(null)
       setBlocked(false)
+      setRetryAfter(0)
     } catch (e) {
       showToast(e.response?.data?.message || 'No user with that ID')
     }
@@ -101,6 +102,7 @@ export default function Messenger() {
     setActiveName(c.name)
     setRl(null)
     setBlocked(false)
+    setRetryAfter(0)
   }
 
   // send a message - this is where rate limiting is felt

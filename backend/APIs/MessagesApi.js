@@ -14,14 +14,14 @@ export const messageRoute = express.Router()
 // POST /messages - Send a direct message to a user by their friendly userId (PROTECTED)
 //
 // TWO rate limiters stacked here, both must pass:
-//   1) BY USER : 10 messages per minute total (sliding window) - anti-flooding
-//   2) BY PAIR : 5 messages per minute to the SAME person (sliding window) - anti-spam
+//   1) BY USER : 60 messages per minute total (sliding window) - anti-flooding
+//   2) BY PAIR : 20 messages per minute to the SAME person (sliding window) - anti-spam
 // Express runs middlewares left to right, so if either blocks, you get a 429.
 messageRoute.post(
   '/messages',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
-  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 60 * 1000, by: 'pair' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 20, windowMs: 60 * 1000, by: 'pair' }),
   async (req, res) => {
     try {
       // sender is the logged-in user; receiver comes from the request body
@@ -56,12 +56,12 @@ messageRoute.post(
 )
 
 // GET /messages/:otherUserId - Get the conversation with one other user (PROTECTED)
-// Loose limit: reading is cheap, so allow plenty (60 per minute by user).
+// Loose limit: reading is cheap, so allow plenty (200 per minute by user).
 // Returns all messages between me and the other person, oldest first.
 messageRoute.get(
   '/messages/:otherUserId',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId
@@ -87,7 +87,7 @@ messageRoute.get(
 messageRoute.get(
   '/conversations',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId
