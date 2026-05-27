@@ -15,13 +15,13 @@ export const messageRoute = express.Router()
 //
 // TWO rate limiters stacked here, both must pass:
 //   1) BY USER : 60 messages per minute total (sliding window) - anti-flooding
-//   2) BY PAIR : 20 messages per minute to the SAME person (sliding window) - anti-spam
+//   2) BY PAIR : 200 messages per minute to the SAME person (sliding window) - anti-spam (TEMP: debugging)
 // Express runs middlewares left to right, so if either blocks, you get a 429.
 messageRoute.post(
   '/messages',
   authMiddleware,
   rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'user' }),
-  rateLimiter({ algorithm: 'sliding-window', limit: 20, windowMs: 60 * 1000, by: 'pair' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'pair' }),
   async (req, res) => {
     try {
       // sender is the logged-in user; receiver comes from the request body
