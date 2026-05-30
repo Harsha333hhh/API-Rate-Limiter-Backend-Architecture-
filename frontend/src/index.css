@@ -74,7 +74,7 @@
 
   .input {
     @apply w-full bg-raised border border-line rounded-lg px-3.5 py-2.5 text-text
-      placeholder-muted focus:outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20 transition;
+      placeholder-muted focus:outline-none focus:border-primary focus:border-opacity-60 focus:ring-1 focus:ring-primary focus:ring-opacity-20 transition;
   }
 
   .input:disabled {
@@ -91,7 +91,7 @@
   }
 
   .btn-ghost {
-    @apply btn bg-raised text-text border border-line hover:border-primary/40 hover:bg-raised/80;
+    @apply btn bg-raised text-text border border-line hover:border-primary hover:border-opacity-40 hover:bg-raised hover:bg-opacity-80;
   }
 
   .label {
