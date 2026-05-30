@@ -87,6 +87,82 @@ messageRoute.get(
   }
 )
 
+// PATCH /messages/read/:otherUserId - Mark a conversation as read (PROTECTED)
+// Reuses the same loose read limit as the other read routes.
+messageRoute.patch(
+  '/messages/read/:otherUserId',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = req.user.userId
+      const other = req.params.otherUserId
+
+      const result = await MessageModel.updateMany(
+        { senderId: other, receiverId: me, read: false },
+        { $set: { read: true } }
+      )
+
+      res.status(200).json({
+        message: 'Conversation marked as read',
+        payload: { matched: result.matchedCount, modified: result.modifiedCount },
+      })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
+// GET /unread - Get unread counts grouped by sender (PROTECTED)
+// Returns the counts needed for unread dots, the badge total, and recent unread previews.
+messageRoute.get(
+  '/unread',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = req.user.userId
+
+      const unreadMessages = await MessageModel.find({ receiverId: me, read: false })
+        .sort({ createdAt: -1 })
+        .limit(10)
+
+      const counts = {}
+      const senderIds = new Set()
+      for (const message of unreadMessages) {
+        counts[message.senderId] = (counts[message.senderId] || 0) + 1
+        senderIds.add(message.senderId)
+      }
+
+      const allUnread = await MessageModel.find({ receiverId: me, read: false }).select('senderId')
+      const total = allUnread.length
+      const groupedCounts = {}
+      for (const message of allUnread) {
+        groupedCounts[message.senderId] = (groupedCounts[message.senderId] || 0) + 1
+      }
+
+      const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name')
+      const senderMap = new Map(senders.map((sender) => [sender.userId, sender.name]))
+
+      const recent = unreadMessages.map((message) => ({
+        _id: message._id,
+        senderId: message.senderId,
+        senderName: senderMap.get(message.senderId) || 'Unknown',
+        receiverId: message.receiverId,
+        text: message.text,
+        createdAt: message.createdAt,
+      }))
+
+      res.status(200).json({
+        message: 'Unread counts retrieved',
+        payload: { counts: groupedCounts, total, recent },
+      })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
 // GET /conversations - List everyone I've talked to (PROTECTED)
 // Used by the frontend sidebar to show recent chats.
 messageRoute.get(

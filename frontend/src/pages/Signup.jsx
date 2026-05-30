@@ -34,12 +34,19 @@ export default function Signup() {
   return (
     <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
       <div className="w-full max-w-md fade-up">
-        <div className="text-center mb-8">
-          <div className="font-display text-5xl text-text tracking-tight">Relay</div>
-          <div className="label mt-2">direct messaging</div>
+        <div className="text-center mb-8 space-y-3">
+          <div className="inline-flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
+              <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="1.8">
+                <path d="M7.5 16.5V8.25A2.25 2.25 0 0 1 9.75 6h4.5A2.25 2.25 0 0 1 16.5 8.25v4.5A2.25 2.25 0 0 1 14.25 15H11l-3.5 3.5v-2Z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="font-display text-4xl text-text tracking-tight">Whisper</div>
+          </div>
+          <div className="label">direct messaging</div>
         </div>
 
-        <div className="card p-8">
+        <div className="card surface-card p-8">
           <h1 className="font-display text-3xl text-text mb-1">Create account</h1>
           <p className="text-text-secondary text-sm mb-7">
             You'll get a short ID others can use to message you.

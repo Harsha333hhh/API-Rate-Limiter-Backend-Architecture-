@@ -13,6 +13,8 @@ const messageSchema = new mongoose.Schema(
     receiverId: { type: String, required: true },
     // the actual message text
     text: { type: String, required: true, trim: true },
+    // whether the receiver has opened this message
+    read: { type: Boolean, default: false },
   },
   { timestamps: true } // gives us createdAt automatically
 )

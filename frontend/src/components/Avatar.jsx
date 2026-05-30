@@ -1,10 +1,13 @@
-export default function Avatar({ name, size = 'md', className = '', bgColor = 'bg-primary' }) {
-  const initials = name
-    .split(' ')
+export default function Avatar({ name = '', size = 'md', className = '', style = {} }) {
+  const initials = (name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
     .map((n) => n[0])
     .join('')
     .toUpperCase()
     .slice(0, 2)
+  const fallback = initials || '?'
 
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
@@ -15,12 +18,13 @@ export default function Avatar({ name, size = 'md', className = '', bgColor = 'b
   return (
     <div
       className={`
-        ${sizeClasses[size]} ${bgColor}
+        ${sizeClasses[size]}
         rounded-full flex items-center justify-center font-semibold text-white
         ${className}
       `}
+      style={{ backgroundColor: 'var(--color-primary)', ...style }}
     >
-      {initials}
+      {fallback}
     </div>
   )
 }

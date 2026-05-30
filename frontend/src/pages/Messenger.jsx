@@ -1,58 +1,178 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useTheme } from '../context/ThemeContext.jsx'
 import { api, readRateLimitHeaders } from '../lib/api.js'
 import RateLimitMeter from '../components/RateLimitMeter.jsx'
 import Avatar from '../components/Avatar.jsx'
 import ProfileModal from '../components/ProfileModal.jsx'
 import CustomizationModal from '../components/CustomizationModal.jsx'
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+      <path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" strokeLinecap="round" />
+      <path d="M16 16l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function BellIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8">
+      <path d="M15.5 17H8.5a2.5 2.5 0 0 1-2.5-2.5v-3A6 6 0 0 1 12 5.5a6 6 0 0 1 6 6v3a2.5 2.5 0 0 1-2.5 2.5Z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 17a2 2 0 0 0 4 0" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function SunMoonIcon({ theme }) {
+  return theme === 'dark' ? (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+      <path d="M21 12.2A8.8 8.8 0 1 1 11.8 3 7 7 0 0 0 21 12.2Z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 18.5A6.5 6.5 0 1 1 18.5 12 6.5 6.5 0 0 1 12 18.5Z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8M18.4 18.4l-1.8-1.8M7.4 7.4 5.6 5.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+      <path d="M9 9.5V8a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 9h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function MenuIcon({ type }) {
+  if (type === 'profile') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+        <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4.5 19a7.5 7.5 0 0 1 15 0" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (type === 'custom') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+        <path d="M12 4.5v15" strokeLinecap="round" />
+        <path d="M4.5 12h15" strokeLinecap="round" />
+        <path d="M12 4.5c2.2 0 4 1.8 4 4s-1.8 4-4 4-4 1.8-4 4 1.8 4 4 4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+      <path d="M10 17l-1 4h9a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H9l1 4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12h11" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m7 8 4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function formatTime(value) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function clampPreview(text, limit = 72) {
+  if (!text) return ''
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
+}
+
 export default function Messenger() {
   const { user, logout, refresh } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const [conversations, setConversations] = useState([])
+  const [unreadInfo, setUnreadInfo] = useState({ counts: {}, total: 0, recent: [] })
   const [activeId, setActiveId] = useState('')
   const [activeName, setActiveName] = useState('')
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
-  const [newId, setNewId] = useState('')
+  const [searchId, setSearchId] = useState('')
   const [rl, setRl] = useState(null)
   const [blocked, setBlocked] = useState(false)
   const [retryAfter, setRetryAfter] = useState(0)
   const [toast, setToast] = useState('')
-  const [showMenu, setShowMenu] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showCustomizationModal, setShowCustomizationModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [copiedId, setCopiedId] = useState(false)
+  const [unreadOpen, setUnreadOpen] = useState(false)
   const bottomRef = useRef(null)
-  const menuRef = useRef(null)
+  const unreadMenuRef = useRef(null)
+  const unreadButtonRef = useRef(null)
 
   const loadConversations = async () => {
     try {
       const { data } = await api.get('/message-api/conversations')
-      setConversations(data.payload)
-    } catch (e) {
-      console.error(e)
+      setConversations(data.payload || [])
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const loadUnread = async () => {
+    try {
+      const { data } = await api.get('/message-api/unread')
+      setUnreadInfo(data.payload || { counts: {}, total: 0, recent: [] })
+    } catch (error) {
+      console.error(error)
     }
   }
 
   const loadConversation = async (otherId) => {
     try {
       const { data } = await api.get(`/message-api/messages/${otherId}`)
-      setMessages(data.payload)
-    } catch (e) {
-      console.error(e)
+      setMessages(data.payload || [])
+    } catch (error) {
+      console.error(error)
     }
   }
 
+  const markConversationRead = async (otherId) => {
+    try {
+      await api.patch(`/message-api/messages/read/${otherId}`)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const refreshDashboard = async () => {
+    await Promise.all([loadConversations(), loadUnread()])
+  }
+
   useEffect(() => {
-    loadConversations()
+    refreshDashboard()
   }, [])
 
   useEffect(() => {
-    if (!activeId) return
-    loadConversation(activeId)
-    const t = setInterval(() => loadConversation(activeId), 12000)
-    return () => clearInterval(t)
+    const intervalId = setInterval(() => {
+      refreshDashboard()
+    }, 11000)
+    return () => clearInterval(intervalId)
+  }, [])
+
+  useEffect(() => {
+    if (!activeId) {
+      setMessages([])
+      return undefined
+    }
+
+    const syncConversation = async () => {
+      await markConversationRead(activeId)
+      await Promise.all([loadConversation(activeId), loadConversations(), loadUnread()])
+    }
+
+    syncConversation()
+    const intervalId = setInterval(syncConversation, 12000)
+    return () => clearInterval(intervalId)
   }, [activeId])
 
   useEffect(() => {
@@ -60,89 +180,87 @@ export default function Messenger() {
   }, [messages])
 
   useEffect(() => {
-    if (retryAfter <= 0) return
-    const t = setInterval(() => {
-      setRetryAfter((r) => {
-        if (r <= 1) {
+    if (retryAfter <= 0) return undefined
+    const intervalId = setInterval(() => {
+      setRetryAfter((value) => {
+        if (value <= 1) {
           setBlocked(false)
           return 0
         }
-        return r - 1
+        return value - 1
       })
     }, 1000)
-    return () => clearInterval(t)
+    return () => clearInterval(intervalId)
   }, [retryAfter])
 
-  // Close menu when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setShowMenu(false)
-      }
+    const handleClickOutside = (event) => {
+      if (!unreadOpen) return
+      const menu = unreadMenuRef.current
+      const button = unreadButtonRef.current
+      if (menu?.contains(event.target) || button?.contains(event.target)) return
+      setUnreadOpen(false)
     }
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showMenu])
 
-  const showToast = (msg) => {
-    setToast(msg)
-    setTimeout(() => setToast(''), 2500)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [unreadOpen])
+
+  const showToast = (message) => {
+    setToast(message)
+    window.setTimeout(() => setToast(''), 2500)
   }
 
-  const startChat = async (e) => {
-    e.preventDefault()
-    const id = newId.trim().toLowerCase()
+  const openConversation = (conversation) => {
+    setActiveId(conversation.userId)
+    setActiveName(conversation.name)
+    setSearchId('')
+    setRl(null)
+    setBlocked(false)
+    setRetryAfter(0)
+    setUnreadOpen(false)
+  }
+
+  const searchConversation = async (event) => {
+    event.preventDefault()
+    const id = searchId.trim().toLowerCase()
     if (!id) return
     if (id === user.userId) {
       showToast("That's your own ID")
       return
     }
+
     try {
       const { data } = await api.get(`/user-api/lookup/${id}`)
-      setActiveId(data.payload.userId)
-      setActiveName(data.payload.name)
-      setNewId('')
-      setRl(null)
-      setBlocked(false)
-      setRetryAfter(0)
-    } catch (e) {
-      showToast(e.response?.data?.message || 'No user with that ID')
+      openConversation(data.payload)
+    } catch (error) {
+      showToast(error.response?.data?.message || 'No user with that ID')
     }
   }
 
-  const openConversation = (c) => {
-    setActiveId(c.userId)
-    setActiveName(c.name)
-    setRl(null)
-    setBlocked(false)
-    setRetryAfter(0)
-  }
-
-  const sendMessage = async (e) => {
-    e.preventDefault()
+  const sendMessage = async (event) => {
+    event.preventDefault()
     if (!text.trim() || !activeId) return
+
     try {
-      const res = await api.post('/message-api/messages', {
+      const response = await api.post('/message-api/messages', {
         receiverId: activeId,
         text: text.trim(),
       })
-      setRl(readRateLimitHeaders(res))
+      setRl(readRateLimitHeaders(response))
       setBlocked(false)
       setText('')
-      loadConversation(activeId)
-      loadConversations()
-    } catch (e) {
-      if (e.response?.status === 429) {
-        const headers = readRateLimitHeaders(e)
-        const retry = Number(e.response.data?.retryAfterSeconds) || Number(headers.reset) || 5
+      await Promise.all([loadConversation(activeId), loadConversations(), loadUnread()])
+    } catch (error) {
+      if (error.response?.status === 429) {
+        const headers = readRateLimitHeaders(error)
+        const retry = Number(error.response.data?.retryAfterSeconds) || Number(headers.reset) || 5
         setRl(headers)
         setBlocked(true)
         setRetryAfter(retry)
         showToast('Rate limit hit — slow down')
       } else {
-        showToast(e.response?.data?.message || 'Could not send')
+        showToast(error.response?.data?.message || 'Could not send')
       }
     }
   }
@@ -153,234 +271,323 @@ export default function Messenger() {
       await api.patch('/user-api/me', { name: newName })
       await refresh()
       showToast('Profile updated')
-    } catch (e) {
-      throw e
     } finally {
       setIsSaving(false)
     }
   }
 
-  const copyUserId = () => {
-    navigator.clipboard.writeText(user.userId)
-    setCopiedId(true)
-    setTimeout(() => setCopiedId(false), 1500)
+  const copyUserId = async () => {
+    try {
+      await navigator.clipboard.writeText(user.userId)
+      setCopiedId(true)
+      window.setTimeout(() => setCopiedId(false), 1500)
+      showToast('User ID copied')
+    } catch {
+      showToast('Could not copy ID')
+    }
   }
 
   const handleLogout = async () => {
     await logout()
-    setShowMenu(false)
+    setUnreadOpen(false)
   }
 
+  const unreadCounts = unreadInfo.counts || {}
+  const unreadRecent = unreadInfo.recent || []
+  const totalUnread = unreadInfo.total || 0
+
   return (
-    <div className="min-h-screen flex bg-bg">
-      {/* Sidebar */}
-      <aside className="w-80 border-r border-line bg-surface flex flex-col">
-        {/* User block with menu */}
-        <div className="p-5 border-b border-line" ref={menuRef}>
-          <div className="font-display text-3xl text-text mb-4">Relay</div>
-
-          {/* User clickable block */}
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="w-full text-left p-3 rounded-lg hover:bg-raised transition flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <Avatar name={user.name} size="md" bgColor="bg-primary" />
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-text truncate">{user.name}</div>
-                <div className="text-xs text-muted font-mono truncate">{user.userId}</div>
-              </div>
+    <div className="min-h-screen xl:h-screen xl:grid xl:grid-cols-[300px_minmax(0,1fr)_292px] bg-bg text-text">
+      <aside className="border-b xl:border-b-0 xl:border-r border-line bg-surface/95 backdrop-blur-sm flex flex-col">
+        <div className="p-5 border-b border-line space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
+              <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="1.8">
+                <path d="M7.5 16.5V8.25A2.25 2.25 0 0 1 9.75 6h4.5A2.25 2.25 0 0 1 16.5 8.25v4.5A2.25 2.25 0 0 1 14.25 15H11l-3.5 3.5v-2Z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
-            <svg
-              className={`w-4 h-4 text-muted transition transform ${showMenu ? 'rotate-180' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-          </button>
-
-          {/* Dropdown menu */}
-          {showMenu && (
-            <div className="mt-2 space-y-1 slide-down">
-              <button
-                onClick={() => {
-                  setShowProfileModal(true)
-                  setShowMenu(false)
-                }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-raised transition text-sm text-text"
-              >
-                👤 Profile
-              </button>
-              <button
-                onClick={() => {
-                  setShowCustomizationModal(true)
-                  setShowMenu(false)
-                }}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-raised transition text-sm text-text"
-              >
-                🎨 Appearance
-              </button>
-              <button
-                onClick={copyUserId}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-raised transition text-sm text-text flex items-center justify-between"
-              >
-                <span>📋 Copy ID</span>
-                {copiedId && <span className="text-primary text-xs font-semibold checkmark-flash">✓</span>}
-              </button>
-              <div className="pt-1 border-t border-line" />
-              <button
-                onClick={handleLogout}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-danger/5 hover:text-danger transition text-sm text-text"
-              >
-                👋 Logout
-              </button>
+            <div>
+              <div className="font-display text-xl tracking-tight">Whisper</div>
+              <div className="text-xs uppercase tracking-[0.24em] text-muted">Conversations</div>
             </div>
-          )}
+          </div>
+
+          <form onSubmit={searchConversation} className="space-y-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
+                <SearchIcon />
+              </span>
+              <input
+                value={searchId}
+                onChange={(e) => setSearchId(e.target.value)}
+                placeholder="Search by user ID..."
+                className="input pl-10 font-mono text-sm"
+              />
+            </div>
+            <button type="submit" className="btn-primary w-full">
+              Open conversation
+            </button>
+          </form>
         </div>
 
-        {/* Start new chat */}
-        <form onSubmit={startChat} className="p-4 border-b border-line">
-          <label className="label block mb-1.5">Message someone by ID</label>
-          <div className="flex gap-2">
-            <input
-              value={newId}
-              onChange={(e) => setNewId(e.target.value)}
-              placeholder="e.g. a7k2p9"
-              className="input font-mono text-sm"
-            />
-            <button
-              type="submit"
-              className="btn-primary px-3 text-sm"
-            >
-              Go
-            </button>
-          </div>
-        </form>
-
-        {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {conversations.length === 0 ? (
-            <div className="p-5 text-sm text-muted">
-              No conversations yet. Enter someone's ID above to start.
+            <div className="p-5 text-sm text-text-secondary leading-6">
+              No conversations yet. Search by user ID to start one.
             </div>
           ) : (
-            conversations.map((c) => (
-              <button
-                key={c.userId}
-                onClick={() => openConversation(c)}
-                className={`w-full text-left px-5 py-3.5 border-b border-line/50 hover:bg-raised transition ${
-                  activeId === c.userId ? 'bg-primary/5 border-l-2 border-primary' : ''
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Avatar name={c.name} size="sm" bgColor="bg-primary" />
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium text-sm text-text">{c.name}</span>
-                    <div className="text-xs text-muted truncate">{c.lastMessage}</div>
+            conversations.map((conversation) => {
+              const unreadCount = Number(unreadCounts[conversation.userId]) || 0
+              const isActive = activeId === conversation.userId
+              return (
+                <button
+                  key={conversation.userId}
+                  onClick={() => openConversation(conversation)}
+                  className={`w-full text-left px-5 py-4 border-b border-line/70 transition-all duration-200 hover:bg-raised ${
+                    isActive ? 'bg-primary-soft border-l-2 border-primary' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <Avatar name={conversation.name} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="font-semibold text-sm text-text truncate">{conversation.name}</span>
+                        <span className="font-mono text-[11px] text-muted truncate">{conversation.userId}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-text-secondary truncate">{clampPreview(conversation.lastMessage)}</p>
+                    </div>
+                    {unreadCount > 0 && (
+                      <div className="pt-1">
+                        {unreadCount === 1 ? (
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-primary" />
+                        ) : (
+                          <span className="inline-flex items-center justify-center min-w-6 h-6 rounded-full px-2 text-[11px] font-semibold text-white bg-primary">
+                            {unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              </button>
-            ))
+                </button>
+              )
+            })
           )}
         </div>
       </aside>
 
-      {/* Chat area */}
-      <main className="flex-1 flex flex-col">
-        {!activeId ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-32 h-32 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                <svg className="w-16 h-16 text-primary/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+      <main className="min-h-[60vh] xl:min-h-screen flex flex-col">
+        <header className="px-5 md:px-6 py-4 border-b border-line bg-surface/90 backdrop-blur-sm flex items-center justify-between gap-4 relative">
+          <div className="min-w-0">
+            <div className="text-xs uppercase tracking-[0.24em] text-muted mb-1">Current chat</div>
+            {activeId ? (
+              <div className="min-w-0">
+                <div className="font-semibold text-text truncate">{activeName}</div>
+                <div className="text-xs text-muted font-mono truncate">{activeId}</div>
               </div>
-              <div className="font-display text-4xl text-text mb-2">Start a conversation</div>
-              <p className="text-text-secondary">Enter a user's ID in the sidebar to begin.</p>
-            </div>
+            ) : (
+              <div className="font-semibold text-text-secondary">Select a conversation</div>
+            )}
           </div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-line flex items-center justify-between bg-surface">
-              <div className="flex items-center gap-4">
-                <Avatar name={activeName} size="md" bgColor="bg-primary" />
-                <div>
-                  <div className="font-semibold text-text">{activeName}</div>
-                  <div className="text-xs text-muted font-mono">{activeId}</div>
+
+          <div className="relative flex items-center gap-2">
+            <button
+              ref={unreadButtonRef}
+              onClick={() => setUnreadOpen((value) => !value)}
+              className="relative inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-line bg-raised text-text hover:bg-primary-soft transition"
+            >
+              <BellIcon />
+              {totalUnread > 0 && <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-primary" />}
+            </button>
+            {totalUnread > 0 && (
+              <span className="inline-flex items-center justify-center min-w-8 h-8 rounded-full px-2.5 text-sm font-semibold text-white bg-primary">
+                {totalUnread}
+              </span>
+            )}
+
+            {unreadOpen && (
+              <div
+                ref={unreadMenuRef}
+                className="absolute right-0 top-14 w-[min(24rem,calc(100vw-1.5rem))] rounded-3xl border border-line bg-surface shadow-soft overflow-hidden z-40 bob-in"
+              >
+                <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-text">Unread messages</div>
+                    <div className="text-xs text-muted">Latest received messages across all chats</div>
+                  </div>
+                  <span className="pill-primary">{totalUnread} total</span>
+                </div>
+
+                <div className="max-h-[28rem] overflow-y-auto">
+                  {unreadRecent.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-text-secondary">You're all caught up.</div>
+                  ) : (
+                    unreadRecent.map((item) => (
+                      <button
+                        key={item._id}
+                        onClick={() => {
+                          openConversation({ userId: item.senderId, name: item.senderName })
+                          setUnreadOpen(false)
+                        }}
+                        className="w-full text-left px-4 py-4 border-b border-line/70 last:border-b-0 hover:bg-raised transition"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Avatar name={item.senderName} size="sm" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-semibold text-sm text-text truncate">{item.senderName}</div>
+                                <div className="font-mono text-[11px] text-muted truncate">{item.senderId}</div>
+                              </div>
+                              <div className="text-[11px] text-muted font-mono shrink-0">{formatTime(item.createdAt)}</div>
+                            </div>
+                            <p className="mt-2 text-sm text-text-secondary truncate">{clampPreview(item.text, 84)}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
-            </div>
+            )}
+          </div>
+        </header>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3 bg-bg">
-              {messages.length === 0 ? (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-primary/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                      </svg>
+        <section className="flex-1 overflow-y-auto px-5 md:px-6 py-6 space-y-3">
+          {!activeId ? (
+            <div className="h-full min-h-[45vh] flex items-center justify-center">
+              <div className="text-center max-w-md">
+                <div className="w-20 h-20 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-5 text-primary">
+                  <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M8 12h.01M12 12h.01M16 12h.01" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <div className="font-display text-4xl text-text mb-3">Pick a conversation</div>
+                <p className="text-text-secondary leading-7">Search by user ID on the left, or choose an existing thread to start chatting.</p>
+              </div>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="h-full min-h-[45vh] flex items-center justify-center">
+              <div className="text-center max-w-md">
+                <div className="w-16 h-16 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-4 text-primary">
+                  <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3l-4 4Z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <p className="text-text-secondary text-sm">Say hello to get this thread moving.</p>
+              </div>
+            </div>
+          ) : (
+            messages.map((message) => {
+              const mine = message.senderId === user.userId
+              return (
+                <div key={message._id} className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-up`}>
+                  <div
+                    className={`max-w-[min(38rem,88%)] px-4 py-3 rounded-3xl text-sm leading-6 shadow-sm ${
+                      mine ? 'bg-sent text-white rounded-br-md' : 'bg-received text-text rounded-bl-md'
+                    }`}
+                  >
+                    {message.text}
+                    <div className={`mt-1 text-[11px] font-mono ${mine ? 'text-white/70' : 'text-text-secondary'}`}>
+                      {formatTime(message.createdAt)}
                     </div>
-                    <p className="text-text-secondary text-sm">Say hello to get started!</p>
                   </div>
                 </div>
-              ) : (
-                messages.map((m) => {
-                  const mine = m.senderId === user.userId
-                  return (
-                    <div key={m._id} className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-up`}>
-                      <div
-                        className={`max-w-md px-4 py-2.5 rounded-2xl text-sm ${
-                          mine
-                            ? 'bg-sent text-white rounded-br-sm'
-                            : 'bg-received text-text rounded-bl-sm'
-                        }`}
-                      >
-                        {m.text}
-                        <div className={`text-xs mt-1 font-mono ${mine ? 'text-white/60' : 'text-text-secondary'}`}>
-                          {new Date(m.createdAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-              <div ref={bottomRef} />
-            </div>
+              )
+            })
+          )}
+          <div ref={bottomRef} />
+        </section>
 
-            {/* Rate-limit meter */}
-            <div className="px-6 pb-3 bg-surface border-t border-line">
-              {rl && <RateLimitMeter rl={rl} blocked={blocked} retryAfter={retryAfter} />}
-            </div>
+        <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-5 md:px-6 py-4 space-y-4">
+          <form onSubmit={sendMessage} className="flex gap-3 items-center">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={blocked ? `Blocked — wait ${retryAfter}s` : 'Type a message…'}
+              disabled={blocked || !activeId}
+              className={`input flex-1 ${blocked ? 'flash-red' : ''}`}
+            />
+            <button type="submit" disabled={blocked || !text.trim() || !activeId} className="btn-primary px-6 text-sm">
+              Send
+            </button>
+          </form>
 
-            {/* Composer */}
-            <form onSubmit={sendMessage} className="px-6 pb-6 bg-surface flex gap-3">
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={blocked ? `Blocked — wait ${retryAfter}s` : 'Type a message…'}
-                disabled={blocked}
-                className={`input flex-1 ${blocked ? 'flash-red' : ''}`}
-              />
-              <button
-                type="submit"
-                disabled={blocked || !text.trim()}
-                className="btn-primary px-6 text-sm transition-all"
-              >
-                Send
-              </button>
-            </form>
-          </>
-        )}
+          <RateLimitMeter rl={rl} blocked={blocked} retryAfter={retryAfter} />
+        </footer>
       </main>
 
-      {/* Modals */}
+      <aside className="border-t xl:border-t-0 xl:border-l border-line bg-surface/95 backdrop-blur-sm flex flex-col">
+        <div className="p-5 space-y-5">
+          <button
+            onClick={copyUserId}
+            className="w-full text-left rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
+          >
+            <div className="flex items-center gap-3">
+              <Avatar name={user.name} size="md" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-semibold text-text truncate">{user.name}</span>
+                  <span className="text-[11px] font-mono text-muted truncate">{user.userId}</span>
+                </div>
+                <div className="text-xs text-text-secondary mt-1">Copy user ID</div>
+              </div>
+              <span className="text-muted">
+                <CopyIcon />
+              </span>
+            </div>
+            {copiedId && <div className="mt-3 text-xs font-semibold text-primary">Copied</div>}
+          </button>
+
+          <div className="space-y-2">
+            <button
+              onClick={toggleTheme}
+              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
+            >
+              <span className="flex items-center gap-3 font-medium text-text">
+                <SunMoonIcon theme={theme} />
+                {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+              </span>
+              <span className={`relative h-7 w-12 rounded-full border transition ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-surface border-line'}`}>
+                <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </span>
+            </button>
+
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
+            >
+              <span className="flex items-center gap-3 font-medium text-text">
+                <MenuIcon type="profile" />
+                Profile
+              </span>
+              <span className="text-xs text-muted">Edit name</span>
+            </button>
+
+            <button
+              onClick={() => setShowCustomizationModal(true)}
+              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
+            >
+              <span className="flex items-center gap-3 font-medium text-text">
+                <MenuIcon type="custom" />
+                Customization
+              </span>
+              <span className="text-xs text-muted">Accent colors</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-red-500/5 hover:border-red-400/30 hover:text-red-600 transition px-4 py-3"
+            >
+              <span className="flex items-center gap-3 font-medium text-text">
+                <MenuIcon type="logout" />
+                Logout
+              </span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
       <ProfileModal
         isOpen={showProfileModal}
         user={user}
@@ -389,14 +596,10 @@ export default function Messenger() {
         isSaving={isSaving}
       />
 
-      <CustomizationModal
-        isOpen={showCustomizationModal}
-        onClose={() => setShowCustomizationModal(false)}
-      />
+      <CustomizationModal isOpen={showCustomizationModal} onClose={() => setShowCustomizationModal(false)} />
 
-      {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-surface border border-line rounded-lg px-4 py-2.5 text-sm fade-up z-50 shadow-lg">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-surface border border-line rounded-2xl px-4 py-2.5 text-sm shadow-soft fade-up z-50">
           {toast}
         </div>
       )}

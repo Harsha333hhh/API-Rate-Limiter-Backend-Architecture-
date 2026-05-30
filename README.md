@@ -1,8 +1,8 @@
-# Relay — Direct Messaging with a Custom API Rate Limiter
+# Whisper — Direct Messaging with a Custom API Rate Limiter
 
 **API Rate Limiter (Backend Infrastructure)** — individual project.
 
-A small direct-messaging app (sign up, log in, message anyone by their short user ID) used to demonstrate a **custom-built API rate limiter**. The app is deliberately minimal; the real substance is the rate-limiting infrastructure that protects the API endpoints from abuse.
+A small direct-messaging app (sign up, log in, message anyone by their short user ID) used to demonstrate a **custom-built API rate limiter**. Whisper is deliberately minimal; the real substance is the rate-limiting infrastructure that protects the API endpoints from abuse.
 
 ---
 
@@ -97,7 +97,7 @@ npm run dev               # http://localhost:5173
 ## How to demo it (for your viva)
 
 1. Open two browsers (or one normal + one incognito). Sign up as two users — note each one's short ID shown in the sidebar.
-2. In user A, type user B's ID into "Message someone by ID" and send a message. It appears for B within a few seconds.
+2. In user A, type user B's ID into "Search by user ID..." and send a message. It appears for B within a few seconds.
 3. **Show the limiter:** rapidly send messages to B. Watch the rate-limit meter under the chat drain as `X-RateLimit-Remaining` drops. After 5 messages in a minute to that person, the input turns red and the send is blocked with a 429 and a retry countdown.
 4. **Show the pair vs user distinction:** while blocked from messaging B, start a chat with a *third* user — you can still message them, because the `pair` limit is per-conversation.
 5. **Show IP limiting:** sign out and fail the login 6 times quickly — the 6th is blocked by the IP-based limiter.

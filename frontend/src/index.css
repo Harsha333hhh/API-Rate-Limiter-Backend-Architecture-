@@ -6,58 +6,90 @@
   html {
     -webkit-font-smoothing: antialiased;
     /* Light theme colors (default) */
-    --color-bg: #f4f7fb;
+    --color-bg: #f6f8fb;
     --color-surface: #ffffff;
-    --color-raised: #f9fafb;
-    --color-line: #e5e7eb;
+    --color-raised: #f9fbfe;
+    --color-line: #dfe6ef;
     --color-text: #1f2937;
     --color-text-secondary: #6b7280;
-    --color-muted: #9ca3af;
+    --color-muted: #94a3b8;
     --color-primary: #5b8def;
-    --color-primary-dim: #4a7bce;
+    --color-primary-hover: #4a7bce;
+    --color-primary-soft: #e8f0ff;
+    --color-primary-soft-strong: #d9e6ff;
     --color-sent: #5b8def;
-    --color-received: #e8eef7;
-    --color-accent: #ffb38a;
-    --color-accent-dim: #ff9f6e;
+    --color-received: #eef3fa;
+    --color-meter: #f59e0b;
+    --color-badge-text: #ffffff;
   }
 
   html[data-theme='dark'] {
-    --color-bg: #0f1419;
-    --color-surface: #1a1f2e;
-    --color-raised: #242d3d;
-    --color-line: #3a4557;
+    --color-bg: #0f1720;
+    --color-surface: #18212d;
+    --color-raised: #202a39;
+    --color-line: #314055;
     --color-text: #f3f4f6;
-    --color-text-secondary: #d1d5db;
-    --color-muted: #9ca3af;
+    --color-text-secondary: #cbd5e1;
+    --color-muted: #94a3b8;
     --color-primary: #7b9bf5;
-    --color-primary-dim: #5b8def;
+    --color-primary-hover: #6a8df0;
+    --color-primary-soft: #253556;
+    --color-primary-soft-strong: #2e4470;
     --color-sent: #7b9bf5;
-    --color-received: #2d3b52;
-    --color-accent: #ffb38a;
-    --color-accent-dim: #ff9f6e;
+    --color-received: #243244;
+    --color-meter: #fbbf24;
+    --color-badge-text: #ffffff;
   }
 
-  html[data-accent='mint-cream'] {
+  html[data-accent='soft-blue'] {
+    --color-primary: #5b8def;
+    --color-primary-hover: #436fd9;
+    --color-primary-soft: #e8f0ff;
+    --color-primary-soft-strong: #d9e6ff;
+    --color-sent: #5b8def;
+  }
+
+  html[data-accent='warm-peach'] {
+    --color-primary: #f59e7a;
+    --color-primary-hover: #ea8456;
+    --color-primary-soft: #ffefe6;
+    --color-primary-soft-strong: #ffe1d2;
+    --color-sent: #f59e7a;
+  }
+
+  html[data-accent='mint-green'] {
     --color-primary: #14b8a6;
-    --color-primary-dim: #0d9488;
+    --color-primary-hover: #0f9488;
+    --color-primary-soft: #e2fbf7;
+    --color-primary-soft-strong: #cbf6ee;
     --color-sent: #14b8a6;
-    --color-accent: #fef3c7;
-    --color-accent-dim: #fde68a;
   }
 
-  html[data-accent='indigo-amber'] {
+  html[data-accent='indigo'] {
     --color-primary: #6366f1;
-    --color-primary-dim: #4f46e5;
+    --color-primary-hover: #4f46e5;
+    --color-primary-soft: #eceeff;
+    --color-primary-soft-strong: #dde2ff;
     --color-sent: #6366f1;
-    --color-accent: #fbbf24;
-    --color-accent-dim: #f59e0b;
+  }
+
+  html[data-accent='rose'] {
+    --color-primary: #ec6a8e;
+    --color-primary-hover: #db4d75;
+    --color-primary-soft: #fff0f5;
+    --color-primary-soft-strong: #ffdce8;
+    --color-sent: #ec6a8e;
   }
 
   body {
     @apply bg-bg text-text font-sans;
     background-image:
-      radial-gradient(at 15% 0%, rgba(91, 141, 239, 0.05) 0px, transparent 50%),
-      radial-gradient(at 85% 100%, rgba(255, 179, 138, 0.04) 0px, transparent 55%);
+      radial-gradient(circle at 18% 12%, rgba(91, 141, 239, 0.12) 0px, transparent 30%),
+      radial-gradient(circle at 86% 10%, rgba(245, 158, 11, 0.08) 0px, transparent 22%),
+      linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+    background-size: auto, auto, 42px 42px, 42px 42px;
+    background-position: center, center, center, center;
     background-attachment: fixed;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
@@ -69,12 +101,20 @@
 
 @layer components {
   .card {
-    @apply bg-surface border border-line rounded-2xl transition-colors;
+    @apply bg-surface border border-line rounded-3xl transition-colors;
+  }
+
+  .surface-card {
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  }
+
+  html[data-theme='dark'] .surface-card {
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
   }
 
   .input {
     @apply w-full bg-raised border border-line rounded-lg px-3.5 py-2.5 text-text
-      placeholder-muted focus:outline-none focus:border-primary focus:border-opacity-60 focus:ring-1 focus:ring-primary focus:ring-opacity-20 transition;
+      placeholder-muted focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary-soft transition;
   }
 
   .input:disabled {
@@ -87,7 +127,7 @@
   }
 
   .btn-primary {
-    @apply btn bg-primary text-white hover:bg-primary-dim shadow-sm hover:shadow-md;
+    @apply btn bg-primary text-white hover:bg-primary-hover shadow-sm hover:shadow-md;
   }
 
   .btn-ghost {
@@ -100,6 +140,10 @@
 
   .pill {
     @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-raised text-muted;
+  }
+
+  .pill-primary {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono bg-primary-soft text-primary;
   }
 
   .avatar {
@@ -157,6 +201,21 @@
 
 .slide-down {
   animation: slide-down 0.3s ease-out;
+}
+
+@keyframes bob-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bob-in {
+  animation: bob-in 0.36s ease-out;
 }
 
 @keyframes pulse-dot {

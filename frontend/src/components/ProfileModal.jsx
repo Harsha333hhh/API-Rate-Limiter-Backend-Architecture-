@@ -1,9 +1,16 @@
-import { useState } from 'react'
-import Avatar from './Avatar'
+import { useEffect, useState } from 'react'
+import Avatar from './Avatar.jsx'
 
 export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving }) {
   const [name, setName] = useState(user?.name || '')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(user?.name || '')
+      setError('')
+    }
+  }, [isOpen, user])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -22,16 +29,16 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving }
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-      <div className="card w-full max-w-md p-6 slide-down">
-        <h2 className="text-xl font-semibold text-text mb-4">Edit Profile</h2>
+    <div className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+      <div className="card surface-card w-full max-w-md p-6 slide-down">
+        <h2 className="font-display text-2xl text-text mb-4">Edit profile</h2>
 
         <div className="space-y-4">
           <div className="flex items-center gap-4 mb-6 pb-4 border-b border-line">
             <Avatar name={name || 'U'} size="lg" />
             <div>
               <div className="text-sm text-muted">Display name</div>
-              <div className="text-lg font-medium text-text">{name || 'Unnamed'}</div>
+              <div className="text-lg font-semibold text-text">{name || 'Unnamed'}</div>
             </div>
           </div>
 
