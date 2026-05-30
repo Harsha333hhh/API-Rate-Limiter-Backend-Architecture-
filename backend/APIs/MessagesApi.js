@@ -13,15 +13,20 @@ export const messageRoute = express.Router()
 
 // POST /messages - Send a direct message to a user by their friendly userId (PROTECTED)
 //
-// TWO rate limiters stacked here, both must pass:
-//   1) BY USER : 60 messages per minute total (sliding window) - anti-flooding
-//   2) BY PAIR : 200 messages per minute to the SAME person (sliding window) - anti-spam (TEMP: debugging)
-// Express runs middlewares left to right, so if either blocks, you get a 429.
+// THREE rate limiters stacked here, all must pass (burst first to catch abuse fastest):
+//   1) BURST LAYER (BY USER): 10 messages per 2 seconds (sliding window) - anti-bot
+//      Catches scripts firing many requests/second. Fast human burst-typing tops ~5-7 in 2 sec.
+//   2) PER-USER SUSTAINED (BY USER): 150 messages per minute total (sliding window) - anti-flooding
+//      Defends against sustained system flooding. Active multi-chat users plausibly hit 60-100/min.
+//   3) PER-PAIR SUSTAINED (BY PAIR): 60 messages per minute to the SAME person (sliding window) - anti-harassment
+//      Real rapid two-person chat rarely exceeds this; sustained hammering is abusive.
+// Express runs middlewares left to right, so if any blocks, you get a 429.
 messageRoute.post(
   '/messages',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'user' }),
-  rateLimiter({ algorithm: 'sliding-window', limit: 200, windowMs: 60 * 1000, by: 'pair' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 2 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 150, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 60, windowMs: 60 * 1000, by: 'pair' }),
   async (req, res) => {
     try {
       // sender is the logged-in user; receiver comes from the request body
