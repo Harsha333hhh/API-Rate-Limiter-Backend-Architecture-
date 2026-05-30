@@ -104,8 +104,10 @@ export default function Messenger() {
   const [showCustomizationModal, setShowCustomizationModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [copiedId, setCopiedId] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [unreadOpen, setUnreadOpen] = useState(false)
   const bottomRef = useRef(null)
+  const menuPanelRef = useRef(null)
   const unreadMenuRef = useRef(null)
   const unreadButtonRef = useRef(null)
 
@@ -206,6 +208,17 @@ export default function Messenger() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [unreadOpen])
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!menuOpen) return
+      if (menuPanelRef.current?.contains(event.target)) return
+      setMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuOpen])
+
   const showToast = (message) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2500)
@@ -290,6 +303,7 @@ export default function Messenger() {
   const handleLogout = async () => {
     await logout()
     setUnreadOpen(false)
+    setMenuOpen(false)
   }
 
   const unreadCounts = unreadInfo.counts || {}
@@ -297,8 +311,8 @@ export default function Messenger() {
   const totalUnread = unreadInfo.total || 0
 
   return (
-    <div className="min-h-screen xl:h-screen xl:grid xl:grid-cols-[300px_minmax(0,1fr)_292px] bg-bg text-text">
-      <aside className="border-b xl:border-b-0 xl:border-r border-line bg-surface/95 backdrop-blur-sm flex flex-col">
+    <div className="h-screen flex flex-row overflow-hidden bg-bg text-text">
+      <aside className="w-[300px] shrink-0 border-r border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
         <div className="p-5 border-b border-line space-y-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
@@ -375,7 +389,7 @@ export default function Messenger() {
         </div>
       </aside>
 
-      <main className="min-h-[60vh] xl:min-h-screen flex flex-col">
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <header className="px-5 md:px-6 py-4 border-b border-line bg-surface/90 backdrop-blur-sm flex items-center justify-between gap-4 relative">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-[0.24em] text-muted mb-1">Current chat</div>
@@ -452,7 +466,7 @@ export default function Messenger() {
           </div>
         </header>
 
-        <section className="flex-1 overflow-y-auto px-5 md:px-6 py-6 space-y-3">
+        <section className="flex-1 min-h-0 overflow-y-auto px-5 md:px-6 py-6 space-y-3">
           {!activeId ? (
             <div className="h-full min-h-[45vh] flex items-center justify-center">
               <div className="text-center max-w-md">
@@ -499,7 +513,7 @@ export default function Messenger() {
           <div ref={bottomRef} />
         </section>
 
-        <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-5 md:px-6 py-4 space-y-4">
+        <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-5 md:px-6 py-4 space-y-4 shrink-0">
           <form onSubmit={sendMessage} className="flex gap-3 items-center">
             <input
               value={text}
@@ -517,73 +531,87 @@ export default function Messenger() {
         </footer>
       </main>
 
-      <aside className="border-t xl:border-t-0 xl:border-l border-line bg-surface/95 backdrop-blur-sm flex flex-col">
-        <div className="p-5 space-y-5">
-          <button
-            onClick={copyUserId}
-            className="w-full text-left rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
+      <aside className="w-[300px] shrink-0 border-l border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-5" ref={menuPanelRef}>
+          <div
+            onClick={() => setMenuOpen((value) => !value)}
+            className="w-full cursor-pointer rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
           >
             <div className="flex items-center gap-3">
               <Avatar name={user.name} size="md" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-semibold text-text truncate">{user.name}</span>
-                  <span className="text-[11px] font-mono text-muted truncate">{user.userId}</span>
                 </div>
-                <div className="text-xs text-text-secondary mt-1">Copy user ID</div>
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-secondary">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono text-muted truncate">{user.userId}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        copyUserId()
+                      }}
+                      className="inline-flex items-center justify-center text-muted hover:text-primary transition"
+                      aria-label="Copy user ID"
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
+                  <span className={`text-muted transition-transform ${menuOpen ? 'rotate-180' : ''}`}>
+                    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+                      <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                </div>
               </div>
-              <span className="text-muted">
-                <CopyIcon />
-              </span>
             </div>
             {copiedId && <div className="mt-3 text-xs font-semibold text-primary">Copied</div>}
-          </button>
+          </div>
 
-          <div className="space-y-2">
-            <button
-              onClick={toggleTheme}
-              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
-            >
-              <span className="flex items-center gap-3 font-medium text-text">
-                <SunMoonIcon theme={theme} />
-                {theme === 'dark' ? 'Dark mode' : 'Light mode'}
-              </span>
-              <span className={`relative h-7 w-12 rounded-full border transition ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-surface border-line'}`}>
-                <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </span>
-            </button>
+          {menuOpen && (
+            <div className="mt-3 rounded-3xl border border-line bg-surface shadow-soft overflow-hidden bob-in">
+              <button
+                onClick={toggleTheme}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-line hover:bg-primary-soft transition"
+              >
+                <span className="flex items-center gap-3 font-medium text-text">
+                  <SunMoonIcon theme={theme} />
+                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+                </span>
+                <span className={`relative h-7 w-12 rounded-full border transition ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-surface border-line'}`}>
+                  <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </span>
+              </button>
 
-            <button
-              onClick={() => setShowProfileModal(true)}
-              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
-            >
-              <span className="flex items-center gap-3 font-medium text-text">
+              <button
+                onClick={() => setShowProfileModal(true)}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+              >
                 <MenuIcon type="profile" />
-                Profile
-              </span>
-              <span className="text-xs text-muted">Edit name</span>
-            </button>
+                <span className="font-medium text-text">Profile</span>
+              </button>
 
-            <button
-              onClick={() => setShowCustomizationModal(true)}
-              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-primary-soft transition px-4 py-3"
-            >
-              <span className="flex items-center gap-3 font-medium text-text">
+              <button
+                onClick={() => setShowCustomizationModal(true)}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+              >
                 <MenuIcon type="custom" />
-                Customization
-              </span>
-              <span className="text-xs text-muted">Accent colors</span>
-            </button>
+                <span className="font-medium text-text">Customization</span>
+              </button>
 
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-between rounded-2xl border border-line bg-raised hover:bg-red-500/5 hover:border-red-400/30 hover:text-red-600 transition px-4 py-3"
-            >
-              <span className="flex items-center gap-3 font-medium text-text">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-500/5 hover:text-red-600 transition"
+              >
                 <MenuIcon type="logout" />
-                Logout
-              </span>
-            </button>
+                <span className="font-medium text-text">Logout</span>
+              </button>
+            </div>
+          )}
+
+          <div className="mt-4 rounded-3xl border border-dashed border-line bg-raised/50 p-4 text-xs leading-6 text-text-secondary">
+            Your profile menu stays collapsed until you click the card above.
           </div>
         </div>
       </aside>
