@@ -19,7 +19,6 @@ export default function Login() {
       await login(email, password)
       navigate('/')
     } catch (e) {
-      // if rate limited, the server sends 429 - show a clear message
       if (e.response?.status === 429) {
         const rl = readRateLimitHeaders(e)
         setErr(`Too many login attempts. Try again in ${rl.reset || 'a few'} seconds.`)
@@ -32,16 +31,16 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
+    <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
       <div className="w-full max-w-md fade-up">
         <div className="text-center mb-8">
-          <div className="font-display text-5xl tracking-tight">Relay</div>
+          <div className="font-display text-5xl text-text tracking-tight">Relay</div>
           <div className="label mt-2">direct messaging</div>
         </div>
 
         <div className="card p-8">
-          <h1 className="font-display text-3xl mb-1">Welcome back</h1>
-          <p className="text-muted text-sm mb-7">Sign in to your account.</p>
+          <h1 className="font-display text-3xl text-text mb-1">Welcome back</h1>
+          <p className="text-text-secondary text-sm mb-7">Sign in to your account.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -73,14 +72,14 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} className="btn-gold w-full">
+            <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-line text-center text-sm text-muted">
+          <div className="mt-6 pt-6 border-t border-line text-center text-sm text-text-secondary">
             New here?{' '}
-            <Link to="/signup" className="text-gold hover:underline">
+            <Link to="/signup" className="text-primary hover:underline font-medium">
               Create an account
             </Link>
           </div>

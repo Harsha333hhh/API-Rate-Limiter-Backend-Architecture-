@@ -61,6 +61,27 @@ userRoute.get('/me', authMiddleware, async (req, res) => {
   }
 })
 
+// PATCH /me - Update the currently logged-in user's name (PROTECTED)
+userRoute.patch('/me', authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: 'Name is required' })
+    }
+    const user = await UserModel.findOneAndUpdate(
+      { userId: req.user.userId },
+      { name: name.trim() },
+      { new: true }
+    ).select('-password')
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' })
+    }
+    res.status(200).json({ message: 'User updated', user })
+  } catch (err) {
+    res.status(500).json({ message: 'error', reason: err.message })
+  }
+})
+
 // GET /lookup/:userId - Check if a userId exists before messaging them (PROTECTED)
 // Returns the name so the UI can show who you're about to message.
 userRoute.get('/lookup/:userId', authMiddleware, async (req, res) => {

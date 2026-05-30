@@ -32,16 +32,16 @@ export default function Signup() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
+    <div className="min-h-screen flex items-center justify-center px-6 bg-bg">
       <div className="w-full max-w-md fade-up">
         <div className="text-center mb-8">
-          <div className="font-display text-5xl tracking-tight">Relay</div>
+          <div className="font-display text-5xl text-text tracking-tight">Relay</div>
           <div className="label mt-2">direct messaging</div>
         </div>
 
         <div className="card p-8">
-          <h1 className="font-display text-3xl mb-1">Create account</h1>
-          <p className="text-muted text-sm mb-7">
+          <h1 className="font-display text-3xl text-text mb-1">Create account</h1>
+          <p className="text-text-secondary text-sm mb-7">
             You'll get a short ID others can use to message you.
           </p>
 
@@ -86,14 +86,14 @@ export default function Signup() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} className="btn-gold w-full">
+            <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? 'Creating…' : 'Create account'}
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-line text-center text-sm text-muted">
+          <div className="mt-6 pt-6 border-t border-line text-center text-sm text-text-secondary">
             Already have an account?{' '}
-            <Link to="/login" className="text-gold hover:underline">
+            <Link to="/login" className="text-primary hover:underline font-medium">
               Sign in
             </Link>
           </div>
