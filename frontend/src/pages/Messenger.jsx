@@ -106,8 +106,11 @@ export default function Messenger() {
   const [copiedId, setCopiedId] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [unreadOpen, setUnreadOpen] = useState(false)
+  const [mobileView, setMobileView] = useState('list')
   const bottomRef = useRef(null)
-  const menuPanelRef = useRef(null)
+  const inputRef = useRef(null)
+  const desktopMenuRef = useRef(null)
+  const mobileMenuRef = useRef(null)
   const unreadMenuRef = useRef(null)
   const unreadButtonRef = useRef(null)
 
@@ -164,8 +167,17 @@ export default function Messenger() {
   useEffect(() => {
     if (!activeId) {
       setMessages([])
+      setMobileView('list')
       return undefined
     }
+
+    if (window.innerWidth < 768) {
+      setMobileView('chat')
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      inputRef.current?.focus()
+    }, 0)
 
     const syncConversation = async () => {
       await markConversationRead(activeId)
@@ -174,7 +186,51 @@ export default function Messenger() {
 
     syncConversation()
     const intervalId = setInterval(syncConversation, 12000)
-    return () => clearInterval(intervalId)
+    return () => {
+      clearTimeout(focusTimer)
+      clearInterval(intervalId)
+    }
+  }, [activeId])
+
+  useEffect(() => {
+    if (!menuOpen) return undefined
+
+    const handleClickOutside = (event) => {
+      const desktopPanel = desktopMenuRef.current
+      const mobilePanel = mobileMenuRef.current
+      if (desktopPanel?.contains(event.target) || mobilePanel?.contains(event.target)) return
+      setMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [menuOpen])
+
+  useEffect(() => {
+    const handleUnreadOutside = (event) => {
+      if (!unreadOpen) return
+      const menu = unreadMenuRef.current
+      const button = unreadButtonRef.current
+      if (menu?.contains(event.target) || button?.contains(event.target)) return
+      setUnreadOpen(false)
+    }
+
+    document.addEventListener('mousedown', handleUnreadOutside)
+    return () => document.removeEventListener('mousedown', handleUnreadOutside)
+  }, [unreadOpen])
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768 && activeId) {
+        setMobileView('chat')
+      }
+      if (window.innerWidth >= 768 && !activeId) {
+        setMobileView('list')
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
   }, [activeId])
 
   useEffect(() => {
@@ -195,30 +251,6 @@ export default function Messenger() {
     return () => clearInterval(intervalId)
   }, [retryAfter])
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!unreadOpen) return
-      const menu = unreadMenuRef.current
-      const button = unreadButtonRef.current
-      if (menu?.contains(event.target) || button?.contains(event.target)) return
-      setUnreadOpen(false)
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [unreadOpen])
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!menuOpen) return
-      if (menuPanelRef.current?.contains(event.target)) return
-      setMenuOpen(false)
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [menuOpen])
-
   const showToast = (message) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 2500)
@@ -232,6 +264,8 @@ export default function Messenger() {
     setBlocked(false)
     setRetryAfter(0)
     setUnreadOpen(false)
+    setMenuOpen(false)
+    setMobileView('chat')
   }
 
   const searchConversation = async (event) => {
@@ -253,7 +287,7 @@ export default function Messenger() {
 
   const sendMessage = async (event) => {
     event.preventDefault()
-    if (!text.trim() || !activeId) return
+    if (blocked || !text.trim() || !activeId) return
 
     try {
       const response = await api.post('/message-api/messages', {
@@ -264,6 +298,7 @@ export default function Messenger() {
       setBlocked(false)
       setText('')
       await Promise.all([loadConversation(activeId), loadConversations(), loadUnread()])
+      inputRef.current?.focus()
     } catch (error) {
       if (error.response?.status === 429) {
         const headers = readRateLimitHeaders(error)
@@ -272,6 +307,7 @@ export default function Messenger() {
         setBlocked(true)
         setRetryAfter(retry)
         showToast('Rate limit hit — slow down')
+        inputRef.current?.focus()
       } else {
         showToast(error.response?.data?.message || 'Could not send')
       }
@@ -310,87 +346,190 @@ export default function Messenger() {
   const unreadRecent = unreadInfo.recent || []
   const totalUnread = unreadInfo.total || 0
 
-  return (
-    <div className="h-screen flex flex-row overflow-hidden bg-bg text-text">
-      <aside className="w-[300px] shrink-0 border-r border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
-        <div className="p-5 border-b border-line space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
-              <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="1.8">
-                <path d="M7.5 16.5V8.25A2.25 2.25 0 0 1 9.75 6h4.5A2.25 2.25 0 0 1 16.5 8.25v4.5A2.25 2.25 0 0 1 14.25 15H11l-3.5 3.5v-2Z" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+  const renderMenuContent = () => (
+    <div className="space-y-3">
+      <button
+        onClick={() => setMenuOpen((value) => !value)}
+        className="w-full text-left rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
+      >
+        <div className="flex items-center gap-3">
+          <Avatar name={user.name} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-semibold text-text truncate">{user.name}</span>
             </div>
-            <div>
-              <div className="font-display text-xl tracking-tight">Whisper</div>
-              <div className="text-xs uppercase tracking-[0.24em] text-muted">Conversations</div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-secondary">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-muted truncate">{user.userId}</span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    copyUserId()
+                  }}
+                  className="inline-flex items-center justify-center text-muted hover:text-primary transition"
+                  aria-label="Copy user ID"
+                >
+                  <CopyIcon />
+                </button>
+              </div>
+              <span className={`text-muted transition-transform ${menuOpen ? 'rotate-180' : ''}`}>
+                <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+                  <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
             </div>
           </div>
-
-          <form onSubmit={searchConversation} className="space-y-3">
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
-                <SearchIcon />
-              </span>
-              <input
-                value={searchId}
-                onChange={(e) => setSearchId(e.target.value)}
-                placeholder="Search by user ID..."
-                className="input pl-10 font-mono text-sm"
-              />
-            </div>
-            <button type="submit" className="btn-primary w-full">
-              Open conversation
-            </button>
-          </form>
         </div>
+        {copiedId && <div className="mt-3 text-xs font-semibold text-primary">Copied</div>}
+      </button>
 
-        <div className="flex-1 overflow-y-auto">
-          {conversations.length === 0 ? (
-            <div className="p-5 text-sm text-text-secondary leading-6">
-              No conversations yet. Search by user ID to start one.
-            </div>
-          ) : (
-            conversations.map((conversation) => {
-              const unreadCount = Number(unreadCounts[conversation.userId]) || 0
-              const isActive = activeId === conversation.userId
-              return (
-                <button
-                  key={conversation.userId}
-                  onClick={() => openConversation(conversation)}
-                  className={`w-full text-left px-5 py-4 border-b border-line/70 transition-all duration-200 hover:bg-raised ${
-                    isActive ? 'bg-primary-soft border-l-2 border-primary' : ''
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <Avatar name={conversation.name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2 min-w-0">
-                        <span className="font-semibold text-sm text-text truncate">{conversation.name}</span>
-                        <span className="font-mono text-[11px] text-muted truncate">{conversation.userId}</span>
-                      </div>
-                      <p className="mt-1 text-sm text-text-secondary truncate">{clampPreview(conversation.lastMessage)}</p>
-                    </div>
-                    {unreadCount > 0 && (
-                      <div className="pt-1">
-                        {unreadCount === 1 ? (
-                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-primary" />
-                        ) : (
-                          <span className="inline-flex items-center justify-center min-w-6 h-6 rounded-full px-2 text-[11px] font-semibold text-white bg-primary">
-                            {unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              )
-            })
+      {menuOpen && (
+        <div className="rounded-3xl border border-line bg-surface shadow-soft overflow-hidden bob-in">
+          <button
+            onClick={toggleTheme}
+            className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-line hover:bg-primary-soft transition"
+          >
+            <span className="flex items-center gap-3 font-medium text-text">
+              <SunMoonIcon theme={theme} />
+              {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+            </span>
+            <span className={`relative h-7 w-12 rounded-full border transition ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-surface border-line'}`}>
+              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </span>
+          </button>
+
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+          >
+            <MenuIcon type="profile" />
+            <span className="font-medium text-text">Profile</span>
+          </button>
+
+          <button
+            onClick={() => setShowCustomizationModal(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+          >
+            <MenuIcon type="custom" />
+            <span className="font-medium text-text">Customization</span>
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-500/5 hover:text-red-600 transition"
+          >
+            <MenuIcon type="logout" />
+            <span className="font-medium text-text">Logout</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+
+  const renderConversationList = ({ mobile = false } = {}) => (
+    <>
+      <div className={`${mobile ? 'p-4' : 'p-5 border-b border-line'} space-y-5`}>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-primary-soft flex items-center justify-center text-primary">
+            <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth="1.8">
+              <path d="M7.5 16.5V8.25A2.25 2.25 0 0 1 9.75 6h4.5A2.25 2.25 0 0 1 16.5 8.25v4.5A2.25 2.25 0 0 1 14.25 15H11l-3.5 3.5v-2Z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className={`font-display tracking-tight ${mobile ? 'text-lg' : 'text-xl'}`}>Whisper</div>
+            <div className="text-xs uppercase tracking-[0.24em] text-muted">Conversations</div>
+          </div>
+          {mobile && (
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-line bg-raised text-text"
+              aria-label="Open menu"
+            >
+              <MenuIcon />
+            </button>
           )}
         </div>
-      </aside>
 
-      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <header className="px-5 md:px-6 py-4 border-b border-line bg-surface/90 backdrop-blur-sm flex items-center justify-between gap-4 relative">
+        <form onSubmit={searchConversation} className="space-y-3">
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
+              <SearchIcon />
+            </span>
+            <input
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value)}
+              placeholder="Search by user ID..."
+              className="input pl-10 font-mono text-sm"
+            />
+          </div>
+          <button type="submit" className="btn-primary w-full">
+            Open conversation
+          </button>
+        </form>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {conversations.length === 0 ? (
+          <div className="p-5 text-sm text-text-secondary leading-6">
+            No conversations yet. Search by user ID to start one.
+          </div>
+        ) : (
+          conversations.map((conversation) => {
+            const unreadCount = Number(unreadCounts[conversation.userId]) || 0
+            const isActive = activeId === conversation.userId
+            return (
+              <button
+                key={conversation.userId}
+                onClick={() => openConversation(conversation)}
+                className={`w-full text-left px-4 md:px-5 py-4 border-b border-line/70 transition-all duration-200 hover:bg-raised ${
+                  isActive ? 'bg-primary-soft border-l-2 border-primary' : ''
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Avatar name={conversation.name} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      <span className="font-semibold text-sm text-text truncate">{conversation.name}</span>
+                      <span className="font-mono text-[11px] text-muted truncate">{conversation.userId}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-text-secondary truncate">{clampPreview(conversation.lastMessage)}</p>
+                  </div>
+                  {unreadCount > 0 && (
+                    <div className="pt-1">
+                      {unreadCount === 1 ? (
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-primary" />
+                      ) : (
+                        <span className="inline-flex items-center justify-center min-w-6 h-6 rounded-full px-2 text-[11px] font-semibold text-white bg-primary">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </>
+  )
+
+  const renderChatArea = ({ mobile = false } = {}) => (
+    <>
+      <header className={`${mobile ? 'px-4' : 'px-5 md:px-6'} py-4 border-b border-line bg-surface/90 backdrop-blur-sm flex items-center justify-between gap-3 relative`}>
+        <div className="min-w-0 flex items-center gap-3">
+          {mobile && (
+            <button
+              onClick={() => setMobileView('list')}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-line bg-raised text-text"
+              aria-label="Back to conversations"
+            >
+              <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+                <path d="m15 18-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-[0.24em] text-muted mb-1">Current chat</div>
             {activeId ? (
@@ -402,219 +541,203 @@ export default function Messenger() {
               <div className="font-semibold text-text-secondary">Select a conversation</div>
             )}
           </div>
-
-          <div className="relative flex items-center gap-2">
-            <button
-              ref={unreadButtonRef}
-              onClick={() => setUnreadOpen((value) => !value)}
-              className="relative inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-line bg-raised text-text hover:bg-primary-soft transition"
-            >
-              <BellIcon />
-              {totalUnread > 0 && <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-primary" />}
-            </button>
-            {totalUnread > 0 && (
-              <span className="inline-flex items-center justify-center min-w-8 h-8 rounded-full px-2.5 text-sm font-semibold text-white bg-primary">
-                {totalUnread}
-              </span>
-            )}
-
-            {unreadOpen && (
-              <div
-                ref={unreadMenuRef}
-                className="absolute right-0 top-14 w-[min(24rem,calc(100vw-1.5rem))] rounded-3xl border border-line bg-surface shadow-soft overflow-hidden z-40 bob-in"
-              >
-                <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold text-text">Unread messages</div>
-                    <div className="text-xs text-muted">Latest received messages across all chats</div>
-                  </div>
-                  <span className="pill-primary">{totalUnread} total</span>
-                </div>
-
-                <div className="max-h-[28rem] overflow-y-auto">
-                  {unreadRecent.length === 0 ? (
-                    <div className="px-4 py-6 text-sm text-text-secondary">You're all caught up.</div>
-                  ) : (
-                    unreadRecent.map((item) => (
-                      <button
-                        key={item._id}
-                        onClick={() => {
-                          openConversation({ userId: item.senderId, name: item.senderName })
-                          setUnreadOpen(false)
-                        }}
-                        className="w-full text-left px-4 py-4 border-b border-line/70 last:border-b-0 hover:bg-raised transition"
-                      >
-                        <div className="flex items-start gap-3">
-                          <Avatar name={item.senderName} size="sm" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="font-semibold text-sm text-text truncate">{item.senderName}</div>
-                                <div className="font-mono text-[11px] text-muted truncate">{item.senderId}</div>
-                              </div>
-                              <div className="text-[11px] text-muted font-mono shrink-0">{formatTime(item.createdAt)}</div>
-                            </div>
-                            <p className="mt-2 text-sm text-text-secondary truncate">{clampPreview(item.text, 84)}</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </header>
-
-        <section className="flex-1 min-h-0 overflow-y-auto px-5 md:px-6 py-6 space-y-3">
-          {!activeId ? (
-            <div className="h-full min-h-[45vh] flex items-center justify-center">
-              <div className="text-center max-w-md">
-                <div className="w-20 h-20 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-5 text-primary">
-                  <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10" stroke="currentColor" strokeWidth="1.6">
-                    <path d="M8 12h.01M12 12h.01M16 12h.01" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-                <div className="font-display text-4xl text-text mb-3">Pick a conversation</div>
-                <p className="text-text-secondary leading-7">Search by user ID on the left, or choose an existing thread to start chatting.</p>
-              </div>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="h-full min-h-[45vh] flex items-center justify-center">
-              <div className="text-center max-w-md">
-                <div className="w-16 h-16 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-4 text-primary">
-                  <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8" stroke="currentColor" strokeWidth="1.6">
-                    <path d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3l-4 4Z" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-                <p className="text-text-secondary text-sm">Say hello to get this thread moving.</p>
-              </div>
-            </div>
-          ) : (
-            messages.map((message) => {
-              const mine = message.senderId === user.userId
-              return (
-                <div key={message._id} className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-up`}>
-                  <div
-                    className={`max-w-[min(38rem,88%)] px-4 py-3 rounded-3xl text-sm leading-6 shadow-sm ${
-                      mine ? 'bg-sent text-white rounded-br-md' : 'bg-received text-text rounded-bl-md'
-                    }`}
-                  >
-                    {message.text}
-                    <div className={`mt-1 text-[11px] font-mono ${mine ? 'text-white/70' : 'text-text-secondary'}`}>
-                      {formatTime(message.createdAt)}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          )}
-          <div ref={bottomRef} />
-        </section>
-
-        <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-5 md:px-6 py-4 space-y-4 shrink-0">
-          <form onSubmit={sendMessage} className="flex gap-3 items-center">
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={blocked ? `Blocked — wait ${retryAfter}s` : 'Type a message…'}
-              disabled={blocked || !activeId}
-              className={`input flex-1 ${blocked ? 'flash-red' : ''}`}
-            />
-            <button type="submit" disabled={blocked || !text.trim() || !activeId} className="btn-primary px-6 text-sm">
-              Send
-            </button>
-          </form>
-
-          <RateLimitMeter rl={rl} blocked={blocked} retryAfter={retryAfter} />
-        </footer>
-      </main>
-
-      <aside className="w-[300px] shrink-0 border-l border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-5" ref={menuPanelRef}>
-          <div
-            onClick={() => setMenuOpen((value) => !value)}
-            className="w-full cursor-pointer rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
-          >
-            <div className="flex items-center gap-3">
-              <Avatar name={user.name} size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold text-text truncate">{user.name}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-secondary">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono text-muted truncate">{user.userId}</span>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        copyUserId()
-                      }}
-                      className="inline-flex items-center justify-center text-muted hover:text-primary transition"
-                      aria-label="Copy user ID"
-                    >
-                      <CopyIcon />
-                    </button>
-                  </div>
-                  <span className={`text-muted transition-transform ${menuOpen ? 'rotate-180' : ''}`}>
-                    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
-                      <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                </div>
-              </div>
-            </div>
-            {copiedId && <div className="mt-3 text-xs font-semibold text-primary">Copied</div>}
-          </div>
-
-          {menuOpen && (
-            <div className="mt-3 rounded-3xl border border-line bg-surface shadow-soft overflow-hidden bob-in">
-              <button
-                onClick={toggleTheme}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 border-b border-line hover:bg-primary-soft transition"
-              >
-                <span className="flex items-center gap-3 font-medium text-text">
-                  <SunMoonIcon theme={theme} />
-                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
-                </span>
-                <span className={`relative h-7 w-12 rounded-full border transition ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-surface border-line'}`}>
-                  <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </span>
-              </button>
-
-              <button
-                onClick={() => setShowProfileModal(true)}
-                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
-              >
-                <MenuIcon type="profile" />
-                <span className="font-medium text-text">Profile</span>
-              </button>
-
-              <button
-                onClick={() => setShowCustomizationModal(true)}
-                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
-              >
-                <MenuIcon type="custom" />
-                <span className="font-medium text-text">Customization</span>
-              </button>
-
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-500/5 hover:text-red-600 transition"
-              >
-                <MenuIcon type="logout" />
-                <span className="font-medium text-text">Logout</span>
-              </button>
-            </div>
-          )}
-
-          <div className="mt-4 rounded-3xl border border-dashed border-line bg-raised/50 p-4 text-xs leading-6 text-text-secondary">
-            Your profile menu stays collapsed until you click the card above.
-          </div>
         </div>
-      </aside>
+
+        <div className="relative flex items-center gap-2">
+          <button
+            ref={unreadButtonRef}
+            onClick={() => setUnreadOpen((value) => !value)}
+            className="relative inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-line bg-raised text-text hover:bg-primary-soft transition"
+            aria-label="Unread messages"
+          >
+            <BellIcon />
+            {totalUnread > 0 && <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-primary" />}
+          </button>
+          {totalUnread > 0 && !mobile && (
+            <span className="inline-flex items-center justify-center min-w-8 h-8 rounded-full px-2.5 text-sm font-semibold text-white bg-primary">
+              {totalUnread}
+            </span>
+          )}
+          {mobile && (
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-line bg-raised text-text"
+              aria-label="Open menu"
+            >
+              <MenuIcon />
+            </button>
+          )}
+
+          {unreadOpen && (
+            <div
+              ref={unreadMenuRef}
+              className={`absolute right-0 ${mobile ? 'top-14 left-0 w-auto' : 'top-14 w-[min(24rem,calc(100vw-1.5rem))]'} rounded-3xl border border-line bg-surface shadow-soft overflow-hidden z-40 bob-in`}
+            >
+              <div className="px-4 py-3 border-b border-line flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-text">Unread messages</div>
+                  <div className="text-xs text-muted">Latest received messages across all chats</div>
+                </div>
+                <span className="pill-primary">{totalUnread} total</span>
+              </div>
+
+              <div className="max-h-[28rem] overflow-y-auto">
+                {unreadRecent.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-text-secondary">You're all caught up.</div>
+                ) : (
+                  unreadRecent.map((item) => (
+                    <button
+                      key={item._id}
+                      onClick={() => {
+                        openConversation({ userId: item.senderId, name: item.senderName })
+                        setUnreadOpen(false)
+                        if (mobile) setMobileView('chat')
+                      }}
+                      className="w-full text-left px-4 py-4 border-b border-line/70 last:border-b-0 hover:bg-raised transition"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Avatar name={item.senderName} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-sm text-text truncate">{item.senderName}</div>
+                              <div className="font-mono text-[11px] text-muted truncate">{item.senderId}</div>
+                            </div>
+                            <div className="text-[11px] text-muted font-mono shrink-0">{formatTime(item.createdAt)}</div>
+                          </div>
+                          <p className="mt-2 text-sm text-text-secondary truncate">{clampPreview(item.text, 84)}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </header>
+
+      <section className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-6 space-y-3">
+        {!activeId ? (
+          <div className="h-full min-h-[45vh] flex items-center justify-center">
+            <div className="text-center max-w-md">
+              <div className="w-20 h-20 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-5 text-primary">
+                <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10" stroke="currentColor" strokeWidth="1.6">
+                  <path d="M8 12h.01M12 12h.01M16 12h.01" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div className="font-display text-4xl text-text mb-3">Pick a conversation</div>
+              <p className="text-text-secondary leading-7">Search by user ID on the left, or choose an existing thread to start chatting.</p>
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="h-full min-h-[45vh] flex items-center justify-center">
+            <div className="text-center max-w-md">
+              <div className="w-16 h-16 rounded-full bg-primary-soft flex items-center justify-center mx-auto mb-4 text-primary">
+                <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8" stroke="currentColor" strokeWidth="1.6">
+                  <path d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3l-4 4Z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <p className="text-text-secondary text-sm">Say hello to get this thread moving.</p>
+            </div>
+          </div>
+        ) : (
+          messages.map((message) => {
+            const mine = message.senderId === user.userId
+            return (
+              <div key={message._id} className={`flex ${mine ? 'justify-end' : 'justify-start'} fade-up`}>
+                <div
+                  className={`max-w-[min(30rem,82%)] md:max-w-[min(38rem,88%)] px-4 py-3 rounded-3xl text-sm leading-6 shadow-sm ${
+                    mine ? 'bg-sent text-white rounded-br-md' : 'bg-received text-text rounded-bl-md'
+                  }`}
+                >
+                  {message.text}
+                  <div className={`mt-1 text-[11px] font-mono ${mine ? 'text-white/70' : 'text-text-secondary'}`}>
+                    {formatTime(message.createdAt)}
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+        <div ref={bottomRef} />
+      </section>
+
+      <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-4 md:px-6 py-4 space-y-3 shrink-0">
+        <form onSubmit={sendMessage} className="flex gap-3 items-center">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            ref={inputRef}
+            placeholder={blocked ? `Blocked — wait ${retryAfter}s` : 'Type a message…'}
+            className={`input flex-1 ${blocked ? 'flash-red border-primary/40 bg-primary-soft/40' : ''}`}
+          />
+          <button type="submit" disabled={blocked || !text.trim() || !activeId} className="btn-primary px-5 md:px-6 text-sm">
+            Send
+          </button>
+        </form>
+
+        <RateLimitMeter rl={rl} blocked={blocked} retryAfter={retryAfter} />
+      </footer>
+    </>
+  )
+
+  return (
+    <>
+      <div className="desktop-shell h-screen flex-row overflow-hidden bg-bg text-text">
+        <aside className="w-[300px] shrink-0 border-r border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
+          {renderConversationList()}
+        </aside>
+
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {renderChatArea()}
+        </main>
+
+        <aside className="w-[300px] shrink-0 border-l border-line bg-surface/95 backdrop-blur-sm flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-5" ref={desktopMenuRef}>
+            {renderMenuContent()}
+            <div className="mt-4 rounded-3xl border border-dashed border-line bg-raised/50 p-4 text-xs leading-6 text-text-secondary">
+              Your profile menu stays collapsed until you click the card above.
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div className="mobile-shell h-screen flex-col overflow-hidden bg-bg text-text">
+        {mobileView === 'list' ? (
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+            {renderConversationList({ mobile: true })}
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+            {renderChatArea({ mobile: true })}
+          </div>
+        )}
+
+        {menuOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-950/35 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
+            <div
+              className="absolute right-0 top-0 h-full w-[min(100vw,22rem)] bg-surface border-l border-line shadow-soft overflow-y-auto"
+              onClick={(event) => event.stopPropagation()}
+              ref={mobileMenuRef}
+            >
+              <div className="p-4 border-b border-line flex items-center justify-between">
+                <div>
+                  <div className="font-display text-xl tracking-tight">Menu</div>
+                  <div className="text-xs uppercase tracking-[0.22em] text-muted">Whisper</div>
+                </div>
+                <button onClick={() => setMenuOpen(false)} className="btn-ghost px-3 py-2 rounded-full">
+                  Close
+                </button>
+              </div>
+              <div className="p-4">
+                {renderMenuContent()}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       <ProfileModal
         isOpen={showProfileModal}
@@ -631,6 +754,6 @@ export default function Messenger() {
           {toast}
         </div>
       )}
-    </div>
+    </>
   )
 }

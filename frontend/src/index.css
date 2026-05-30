@@ -289,3 +289,21 @@
 .pulse-ring {
   animation: pulse-ring 2s infinite;
 }
+
+.desktop-shell {
+  display: none;
+}
+
+.mobile-shell {
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  .desktop-shell {
+    display: flex;
+  }
+
+  .mobile-shell {
+    display: none;
+  }
+}

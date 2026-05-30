@@ -30,34 +30,34 @@ export default function Landing() {
         <div className="absolute top-24 right-0 w-80 h-80 rounded-full bg-meter/20 blur-3xl" />
       </div>
 
-      <header className="relative z-10 px-6 py-5 md:px-10 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <header className="relative z-10 px-4 py-5 md:px-10 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
           <LogoMark />
-          <div className="font-display text-2xl tracking-tight">Whisper</div>
+          <div className="font-display text-xl md:text-2xl tracking-tight">Whisper</div>
         </div>
-        <div className="flex items-center gap-3">
-          <Link to="/login" className="btn-ghost px-4 py-2 rounded-full bg-transparent">
+        <div className="flex items-center gap-2 sm:gap-3 ml-auto">
+          <Link to="/login" className="btn-ghost px-3.5 sm:px-4 py-2 rounded-full bg-transparent text-sm sm:text-base">
             Log in
           </Link>
-          <Link to="/signup" className="btn-primary px-4 py-2 rounded-full">
+          <Link to="/signup" className="btn-primary px-3.5 sm:px-4 py-2 rounded-full text-sm sm:text-base">
             Sign up
           </Link>
         </div>
       </header>
 
-      <main className="relative z-10 px-6 pb-16 md:px-10">
-        <section className="mx-auto max-w-6xl pt-12 md:pt-20 text-center">
+      <main className="relative z-10 px-4 pb-16 md:px-10">
+        <section className="mx-auto max-w-6xl pt-10 md:pt-20 text-center">
           <p className="label mb-6 tracking-[0.28em]">Direct messages by ID</p>
-          <h1 className="font-display text-[clamp(4.2rem,12vw,8.75rem)] leading-[0.88] text-text tracking-[-0.04em]">
+          <h1 className="font-display text-[clamp(3.4rem,16vw,8.75rem)] md:text-[clamp(4.2rem,12vw,8.75rem)] leading-[0.88] text-text tracking-[-0.04em]">
             Whisper
           </h1>
-          <p className="mx-auto mt-6 max-w-3xl text-lg md:text-2xl leading-relaxed text-text-secondary">
+          <p className="mx-auto mt-6 max-w-3xl text-base md:text-2xl leading-relaxed text-text-secondary">
             Direct messages, by ID — no phone numbers, no friend requests, just conversations.
           </p>
         </section>
 
         <section className="mx-auto mt-16 md:mt-20 max-w-6xl">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <FeatureCard
               title="Message anyone by ID"
               description="Skip phone numbers and usernames. Type a short ID and start a private conversation immediately."
