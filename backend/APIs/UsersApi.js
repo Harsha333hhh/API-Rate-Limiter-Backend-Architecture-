@@ -11,6 +11,24 @@ import { rateLimiter } from '../RateLimiter/rateLimiter.js'
 // create and export user router
 export const userRoute = express.Router()
 
+function namespaceRateLimitUser(namespace) {
+  return (req, res, next) => {
+    req._originalRateLimitUserId = req.user?.userId
+    if (req.user?.userId) {
+      req.user.userId = `${req.user.userId}:${namespace}`
+    }
+    next()
+  }
+}
+
+function restoreRateLimitUser(req, res, next) {
+  if (req._originalRateLimitUserId) {
+    req.user.userId = req._originalRateLimitUserId
+    delete req._originalRateLimitUserId
+  }
+  next()
+}
+
 // POST /users - Register new user (PUBLIC)
 // RATE LIMITED BY IP: stops a bot from creating lots of spam accounts from one machine.
 // 5 signups per 10 minutes per IP.
@@ -65,7 +83,9 @@ userRoute.get('/me', authMiddleware, async (req, res) => {
 userRoute.patch(
   '/me',
   authMiddleware,
+  namespaceRateLimitUser('profile-edit'),
   rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  restoreRateLimitUser,
   async (req, res) => {
     try {
       const { name } = req.body
