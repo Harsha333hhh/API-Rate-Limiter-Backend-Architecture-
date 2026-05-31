@@ -148,35 +148,31 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
               <div className="text-sm font-semibold text-red-600 mb-2">Danger zone</div>
               <div className="text-sm text-text-secondary mb-3">This action will delete your account. Past messages will remain but show as from 'Deleted user'.</div>
               <div className="flex gap-3">
-                <button onClick={() => setConfirmOpen(true)} className="btn-danger w-full">Delete account</button>
+                <button onClick={() => setConfirmOpen(true)} className="btn-danger w-full hover:bg-red-600 hover:text-white transition">Delete account</button>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  )
-
-  // confirmation modal
-  if (confirmOpen) {
-    return (
-      <div className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm flex items-center justify-center z-60 px-4">
-        <div className="card surface-card w-full max-w-md p-6 slide-down">
-          <h2 className="font-display text-2xl text-text mb-4">Delete your account?</h2>
-          <p className="text-text-secondary mb-6">This will permanently delete your account. Your past messages will remain in others' conversations, but shown as from 'Deleted user'. This cannot be undone.</p>
-          <div className="flex gap-3">
-            <button onClick={() => setConfirmOpen(false)} className="btn-ghost flex-1">Cancel</button>
-            <button
-              onClick={async () => {
-                await handleDeleteAccount()
-              }}
-              className="btn-danger flex-1"
-            >
-              Delete account
-            </button>
+      {confirmOpen && (
+        <div className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm flex items-center justify-center z-60 px-4">
+          <div className="card surface-card w-full max-w-md p-6 slide-down">
+            <h2 className="font-display text-2xl text-text mb-4">Delete your account?</h2>
+            <p className="text-text-secondary mb-6">This will permanently delete your account. Your past messages will remain in others' conversations, but shown as from 'Deleted user'. This cannot be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmOpen(false)} className="btn-ghost flex-1">Cancel</button>
+              <button
+                onClick={async () => {
+                  await handleDeleteAccount()
+                }}
+                className="btn-danger flex-1 hover:bg-red-600 hover:text-white transition"
+              >
+                Delete account
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )
-  }
+      )}
+    </div>
+  )
 }
