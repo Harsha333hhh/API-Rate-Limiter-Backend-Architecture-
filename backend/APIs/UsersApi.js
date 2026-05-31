@@ -150,10 +150,11 @@ userRoute.delete(
 )
 
 // POST /block/:userId - Block a user (add to current user's blocked list)
+// Tight rate limit to prevent scripted block/unblock abuse
 userRoute.post(
   '/block/:userId',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 60 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId
@@ -168,10 +169,11 @@ userRoute.post(
 )
 
 // POST /unblock/:userId - Unblock a user (remove from blocked list)
+// Tight rate limit to prevent scripted block/unblock abuse
 userRoute.post(
   '/unblock/:userId',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 60 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId
