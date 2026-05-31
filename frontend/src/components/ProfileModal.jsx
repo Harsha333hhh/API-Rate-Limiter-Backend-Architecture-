@@ -148,7 +148,12 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
               <div className="text-sm font-semibold text-red-600 mb-2">Danger zone</div>
               <div className="text-sm text-text-secondary mb-3">This action will delete your account. Past messages will remain but show as from 'Deleted user'.</div>
               <div className="flex gap-3">
-                <button onClick={() => setConfirmOpen(true)} className="btn-danger w-full hover:bg-red-600 hover:text-white transition">Delete account</button>
+                <button
+                  onClick={() => setConfirmOpen(true)}
+                  className="w-full rounded-2xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition px-4 py-2"
+                >
+                  Delete account
+                </button>
               </div>
             </div>
           </div>
@@ -165,7 +170,7 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
                 onClick={async () => {
                   await handleDeleteAccount()
                 }}
-                className="btn-danger flex-1 hover:bg-red-600 hover:text-white transition"
+                className="flex-1 rounded-2xl bg-red-600 text-white hover:bg-red-700 transition px-4 py-2"
               >
                 Delete account
               </button>
