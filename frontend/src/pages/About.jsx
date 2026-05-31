@@ -158,9 +158,14 @@ export default function About() {
           </ol>
         </section>
 
-        <section className="mb-12">
-          <h2 className="font-display text-2xl mb-6">What's next</h2>
-          <p className="text-text-secondary">Next steps: Redis-backed store for multi-instance deployments, admin analytics dashboard tracking blocked requests, and configurable per-user limit tiers (e.g. premium users).</p>
+        <section className="mb-16 mt-8">
+          <h2 className="font-display text-2xl mb-4">Thanks for stopping by</h2>
+          <p className="text-base text-text-secondary leading-7 max-w-3xl mx-auto">
+            Thanks for taking the time to look through Whisper. If you've made it this far, you've got the gist — a small messaging app sitting on top of a rate limiter I built from scratch. Try sending a few messages, push it until it blocks, and you'll see the whole thing in action.
+          </p>
+          <p className="mt-3 text-base text-text-secondary leading-7 max-w-3xl mx-auto">
+            If anything's broken or you have feedback, I'd genuinely love to hear it.
+          </p>
         </section>
 
         <footer className="mt-12 text-center text-sm text-text-secondary">
