@@ -216,6 +216,8 @@ export default function Messenger() {
   const handleDeleteChat = async (userId) => {
     try {
       await api.delete(`/message-api/conversations/${userId}`)
+      // Optimistically remove from UI immediately
+      setConversations((prev) => prev.filter((c) => c.userId !== userId))
       await refreshDashboard()
       if (activeId === userId) {
         resetConversationView()
@@ -607,6 +609,9 @@ export default function Messenger() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2 min-w-0">
                       <span className="font-semibold text-sm text-text truncate">{conversation.name}</span>
+                      {blockedUsers.some((p) => p.userId === conversation.userId) && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">Blocked</span>
+                      )}
                       <span className="font-mono text-[11px] text-muted truncate">{conversation.userId}</span>
                     </div>
                     <p className="mt-1 text-sm text-text-secondary truncate">{clampPreview(conversation.lastMessage)}</p>
@@ -656,7 +661,8 @@ export default function Messenger() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation()
-                            if (isConversationBlocked) {
+                            const rowIsBlocked = blockedUsers.some((p) => p.userId === conversation.userId)
+                            if (rowIsBlocked) {
                               await handleUnblockUser(conversation.userId)
                               return
                             }
@@ -664,7 +670,7 @@ export default function Messenger() {
                           }}
                           className="w-full text-left px-4 py-3 hover:bg-primary-soft transition text-text"
                         >
-                          {isConversationBlocked ? 'Unblock user' : 'Block user'}
+                          {blockedUsers.some((p) => p.userId === conversation.userId) ? 'Unblock user' : 'Block user'}
                         </button>
                       </div>
                     )}
