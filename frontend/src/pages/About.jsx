@@ -12,7 +12,7 @@ export default function About() {
           <h1 className="font-display text-4xl md:text-5xl mb-3">About Whisper</h1>
           <p className="text-lg text-text-secondary">An API Rate Limiter, demonstrated through a messaging app.</p>
           <p className="mt-6 text-base leading-7 text-text-secondary max-w-3xl mx-auto">
-            Hi, I'm <strong><code>[NAME_PLACEHOLDER]</code></strong>, a final-year B.Tech CSE student, and Whisper is my individual project on <strong><code>API rate limiting</code></strong>. I picked rate limiting because it's a real piece of backend infrastructure — the kind of thing that quietly protects every API you've ever used, but that almost no student project actually builds from scratch.
+            Hi, I'm <strong><code>Madupa Harshavardan</code></strong>, a final-year B.Tech CSE student, and Whisper is my individual project on <strong><code>API rate limiting</code></strong>. I picked rate limiting because it's a real piece of backend infrastructure — the kind of thing that quietly protects every API you've ever used, but that almost no student project actually builds from scratch.
           </p>
 
           <p className="mt-3 text-base leading-7 text-text-secondary max-w-3xl mx-auto">
