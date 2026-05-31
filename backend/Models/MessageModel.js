@@ -15,6 +15,8 @@ const messageSchema = new mongoose.Schema(
     text: { type: String, required: true, trim: true },
     // whether the receiver has opened this message
     read: { type: Boolean, default: false },
+    // list of userIds for whom this message / conversation is hidden (soft-deleted from sidebar)
+    hiddenFor: { type: [String], default: [] },
   },
   { timestamps: true } // gives us createdAt automatically
 )

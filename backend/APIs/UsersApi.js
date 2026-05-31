@@ -126,3 +126,82 @@ userRoute.post('/logout', authMiddleware, async (req, res) => {
   res.clearCookie('token', { httpOnly: true, sameSite: 'none', secure: true })
   res.status(200).json({ message: 'Logout successful' })
 })
+
+// DELETE /me - Soft-delete the current user (PROTECTED)
+// Rate-limited to prevent abuse of the endpoint
+userRoute.delete(
+  '/me',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const userId = req.user.userId
+      const user = await UserModel.findOneAndUpdate(
+        { userId },
+        { isDeleted: true, name: 'Deleted user', email: '' },
+        { new: true }
+      )
+      res.clearCookie('token', { httpOnly: true, sameSite: 'none', secure: true })
+      return res.status(200).json({ message: 'Account deleted', user: { userId: user.userId, name: user.name } })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
+// POST /block/:userId - Block a user (add to current user's blocked list)
+userRoute.post(
+  '/block/:userId',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = req.user.userId
+      const target = req.params.userId
+      if (me === target) return res.status(400).json({ message: 'Cannot block yourself' })
+      await UserModel.findOneAndUpdate({ userId: me }, { $addToSet: { blocked: target } })
+      res.status(200).json({ message: 'User blocked', blocked: target })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
+// POST /unblock/:userId - Unblock a user (remove from blocked list)
+userRoute.post(
+  '/unblock/:userId',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = req.user.userId
+      const target = req.params.userId
+      await UserModel.findOneAndUpdate({ userId: me }, { $pull: { blocked: target } })
+      res.status(200).json({ message: 'User unblocked', unblocked: target })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
+// GET /blocked - Get the list of blocked users with names (PROTECTED)
+userRoute.get(
+  '/blocked',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = await UserModel.findOne({ userId: req.user.userId }).select('blocked')
+      const blockedIds = me?.blocked || []
+      if (blockedIds.length === 0) return res.status(200).json({ message: 'Blocked retrieved', payload: [] })
+      const users = await UserModel.find({ userId: { $in: blockedIds } }).select('userId name isDeleted')
+      const payload = blockedIds.map((id) => {
+        const u = users.find((x) => x.userId === id)
+        return { userId: id, name: u ? (u.isDeleted ? 'Deleted user' : u.name) : 'Unknown' }
+      })
+      res.status(200).json({ message: 'Blocked retrieved', payload })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)

@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true }, // stored as a bcrypt hash
     role: { type: String, default: 'user' },
+    // soft-delete marker: keeps the user row so past messages still attribute to a userId
+    isDeleted: { type: Boolean, default: false },
+    // list of userIds this user has blocked (prevents them from delivering messages to the blocker)
+    blocked: { type: [String], default: [] },
   },
   { timestamps: true }
 )

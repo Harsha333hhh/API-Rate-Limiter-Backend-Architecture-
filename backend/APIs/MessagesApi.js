@@ -49,11 +49,51 @@ messageRoute.post(
         return res.status(404).json({ message: 'No user with that ID' })
       }
 
+      // If the receiver has blocked the sender, pretend the send succeeded but do not persist the message.
+      if (Array.isArray(receiver.blocked) && receiver.blocked.includes(senderId)) {
+        const fakeMessage = {
+          _id: null,
+          senderId,
+          receiverId,
+          text,
+          read: false,
+          createdAt: new Date(),
+        }
+        return res.status(201).json({ message: 'Message sent', payload: fakeMessage })
+      }
+
       // create and save the message
       const message = new MessageModel({ senderId, receiverId, text })
       const savedMessage = await message.save()
 
       res.status(201).json({ message: 'Message sent', payload: savedMessage })
+    } catch (err) {
+      res.status(500).json({ message: 'error', reason: err.message })
+    }
+  }
+)
+
+// DELETE /conversations/:otherUserId - Soft-hide a conversation for the current user
+messageRoute.delete(
+  '/conversations/:otherUserId',
+  authMiddleware,
+  rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const me = req.user.userId
+      const other = req.params.otherUserId
+
+      const result = await MessageModel.updateMany(
+        {
+          $or: [
+            { senderId: me, receiverId: other },
+            { senderId: other, receiverId: me },
+          ],
+        },
+        { $addToSet: { hiddenFor: me } }
+      )
+
+      res.status(200).json({ message: 'Conversation hidden', payload: { matched: result.matchedCount, modified: result.modifiedCount } })
     } catch (err) {
       res.status(500).json({ message: 'error', reason: err.message })
     }
@@ -78,6 +118,7 @@ messageRoute.get(
           { senderId: me, receiverId: other },
           { senderId: other, receiverId: me },
         ],
+        hiddenFor: { $ne: me },
       }).sort({ createdAt: 1 }) // oldest first
 
       res.status(200).json({ message: 'Conversation retrieved', payload: messages })
@@ -99,7 +140,7 @@ messageRoute.patch(
       const other = req.params.otherUserId
 
       const result = await MessageModel.updateMany(
-        { senderId: other, receiverId: me, read: false },
+        { senderId: other, receiverId: me, read: false, hiddenFor: { $ne: me } },
         { $set: { read: true } }
       )
 
@@ -123,7 +164,7 @@ messageRoute.get(
     try {
       const me = req.user.userId
 
-      const unreadMessages = await MessageModel.find({ receiverId: me, read: false })
+      const unreadMessages = await MessageModel.find({ receiverId: me, read: false, hiddenFor: { $ne: me } })
         .sort({ createdAt: -1 })
         .limit(10)
 
@@ -134,15 +175,15 @@ messageRoute.get(
         senderIds.add(message.senderId)
       }
 
-      const allUnread = await MessageModel.find({ receiverId: me, read: false }).select('senderId')
+      const allUnread = await MessageModel.find({ receiverId: me, read: false, hiddenFor: { $ne: me } }).select('senderId')
       const total = allUnread.length
       const groupedCounts = {}
       for (const message of allUnread) {
         groupedCounts[message.senderId] = (groupedCounts[message.senderId] || 0) + 1
       }
 
-      const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name')
-      const senderMap = new Map(senders.map((sender) => [sender.userId, sender.name]))
+      const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name isDeleted')
+      const senderMap = new Map(senders.map((sender) => [sender.userId, sender.isDeleted ? 'Deleted user' : sender.name]))
 
       const recent = unreadMessages.map((message) => ({
         _id: message._id,
@@ -176,6 +217,7 @@ messageRoute.get(
       // get all messages involving me
       const messages = await MessageModel.find({
         $or: [{ senderId: me }, { receiverId: me }],
+        hiddenFor: { $ne: me },
       }).sort({ createdAt: -1 })
 
       // collect the unique "other" userIds, newest first
@@ -192,8 +234,8 @@ messageRoute.get(
       // attach each person's name for display
       const withNames = await Promise.all(
         others.map(async (o) => {
-          const u = await UserModel.findOne({ userId: o.userId }).select('name')
-          return { ...o, name: u ? u.name : 'Unknown' }
+          const u = await UserModel.findOne({ userId: o.userId }).select('name isDeleted')
+          return { ...o, name: u ? (u.isDeleted ? 'Deleted user' : u.name) : 'Unknown' }
         })
       )
 

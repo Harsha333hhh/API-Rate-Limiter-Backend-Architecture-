@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
@@ -107,6 +108,7 @@ export default function Messenger() {
   const [copiedId, setCopiedId] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [unreadOpen, setUnreadOpen] = useState(false)
+  const [openMenuFor, setOpenMenuFor] = useState(null)
   const [mobileView, setMobileView] = useState('list')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -206,6 +208,31 @@ export default function Messenger() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [menuOpen])
+
+  useEffect(() => {
+    if (!openMenuFor) return undefined
+
+    const handleClickOutsideMenu = (event) => {
+      const menu = document.querySelector('[data-menu-open]')
+      if (!menu || menu.contains(event.target)) return
+      setOpenMenuFor(null)
+    }
+
+    document.addEventListener('mousedown', handleClickOutsideMenu)
+    return () => document.removeEventListener('mousedown', handleClickOutsideMenu)
+  }, [openMenuFor])
+
+  const navigate = useNavigate()
+
+  const handleAccountDelete = async () => {
+    try {
+      await logout()
+    } catch (e) {
+      console.error(e)
+    }
+    setShowProfileModal(false)
+    navigate('/')
+  }
 
   useEffect(() => {
     const handleUnreadOutside = (event) => {
@@ -480,14 +507,17 @@ export default function Messenger() {
             const unreadCount = Number(unreadCounts[conversation.userId]) || 0
             const isActive = activeId === conversation.userId
             return (
-              <button
+              <div
                 key={conversation.userId}
-                onClick={() => openConversation(conversation)}
-                className={`w-full text-left px-4 md:px-5 py-4 border-b border-line/70 transition-all duration-200 hover:bg-raised ${
+                className={`w-full text-left px-4 md:px-5 py-4 border-b border-line/70 transition-all duration-200 hover:bg-raised flex items-start gap-3 relative ${
                   isActive ? 'bg-primary-soft border-l-2 border-primary' : ''
                 }`}
               >
-                <div className="flex items-start gap-3">
+                <button
+                  onClick={() => openConversation(conversation)}
+                  className="flex items-start gap-3 flex-1 text-left"
+                  style={{ background: 'transparent', border: 0 }}
+                >
                   <Avatar name={conversation.name} size="sm" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2 min-w-0">
@@ -496,6 +526,9 @@ export default function Messenger() {
                     </div>
                     <p className="mt-1 text-sm text-text-secondary truncate">{clampPreview(conversation.lastMessage)}</p>
                   </div>
+                </button>
+
+                <div className="flex items-center gap-2 pl-2">
                   {unreadCount > 0 && (
                     <div className="pt-1">
                       {unreadCount === 1 ? (
@@ -507,8 +540,63 @@ export default function Messenger() {
                       )}
                     </div>
                   )}
+
+                  <div className="relative" data-menu-for={conversation.userId}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setOpenMenuFor((v) => (v === conversation.userId ? null : conversation.userId))
+                      }}
+                      className="inline-flex items-center justify-center h-8 w-8 rounded-full text-muted hover:text-text transition"
+                      aria-label="More options"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+                        <path d="M12 6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M12 15a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M12 24a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+
+                    {openMenuFor === conversation.userId && (
+                      <div data-menu-open className="absolute right-0 mt-2 w-40 rounded-2xl border border-line bg-surface shadow-soft z-40">
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              await api.delete(`/message-api/conversations/${conversation.userId}`)
+                              await refreshDashboard()
+                              setOpenMenuFor(null)
+                            } catch (err) {
+                              console.error(err)
+                              setOpenMenuFor(null)
+                            }
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-primary-soft transition"
+                        >
+                          Delete chat
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              await api.post(`/user-api/block/${conversation.userId}`)
+                              await api.delete(`/message-api/conversations/${conversation.userId}`)
+                              await refreshDashboard()
+                              setOpenMenuFor(null)
+                            } catch (err) {
+                              console.error(err)
+                              setOpenMenuFor(null)
+                            }
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-primary-soft transition text-text"
+                        >
+                          Block user
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </button>
+              </div>
             )
           })
         )}
@@ -749,6 +837,7 @@ export default function Messenger() {
         onClose={() => setShowProfileModal(false)}
         onSave={handleUpdateProfile}
         isSaving={isSaving}
+        onDeleteAccount={handleAccountDelete}
       />
 
       <CustomizationModal isOpen={showCustomizationModal} onClose={() => setShowCustomizationModal(false)} />
