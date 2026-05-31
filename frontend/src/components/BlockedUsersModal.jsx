@@ -1,32 +1,10 @@
-import { useEffect, useState } from 'react'
 import { api } from '../lib/api.js'
 
-export default function BlockedUsersModal({ isOpen, onClose, onChanged }) {
-  const [blockedUsers, setBlockedUsers] = useState([])
-  const [loading, setLoading] = useState(false)
-
-  const fetchBlockedUsers = async () => {
-    setLoading(true)
-    try {
-      const { data } = await api.get('/user-api/blocked')
-      setBlockedUsers(data.payload || [])
-    } catch (error) {
-      console.error(error)
-      setBlockedUsers([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!isOpen) return undefined
-    fetchBlockedUsers()
-  }, [isOpen])
+export default function BlockedUsersModal({ isOpen, onClose, onChanged, blockedUsers = [] }) {
 
   const handleUnblock = async (userId) => {
     try {
       await api.post(`/user-api/unblock/${userId}`)
-      await fetchBlockedUsers()
       await onChanged?.()
     } catch (error) {
       console.error(error)
@@ -41,9 +19,7 @@ export default function BlockedUsersModal({ isOpen, onClose, onChanged }) {
         <h2 className="font-display text-2xl text-text mb-2">Blocked users</h2>
         <p className="text-sm text-text-secondary mb-6">People you have blocked. They can no longer send you new messages until you unblock them.</p>
 
-        {loading ? (
-          <div className="text-sm text-text-secondary">Loading…</div>
-        ) : blockedUsers.length === 0 ? (
+        {blockedUsers.length === 0 ? (
           <div className="text-sm text-text-secondary">No blocked users</div>
         ) : (
           <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">

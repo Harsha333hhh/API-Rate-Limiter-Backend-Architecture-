@@ -934,6 +934,7 @@ export default function Messenger() {
         isOpen={showBlockedUsersModal}
         onClose={() => setShowBlockedUsersModal(false)}
         onChanged={refreshDashboard}
+        blockedUsers={blockedUsers}
       />
 
       <CustomizationModal isOpen={showCustomizationModal} onClose={() => setShowCustomizationModal(false)} />
