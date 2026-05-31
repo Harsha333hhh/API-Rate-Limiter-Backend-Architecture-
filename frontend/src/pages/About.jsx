@@ -12,9 +12,11 @@ export default function About() {
           <h1 className="font-display text-4xl md:text-5xl mb-3">About Whisper</h1>
           <p className="text-lg text-text-secondary">An API Rate Limiter, demonstrated through a messaging app.</p>
           <p className="mt-6 text-base leading-7 text-text-secondary max-w-3xl mx-auto">
-            This is a final-year individual project showcasing backend rate-limiting infrastructure. The
-            messaging app is the vehicle — the technical depth lives in the rate-limiter underneath. The focus
-            and grading criteria are backend infrastructure, algorithm trade-offs, and real HTTP behaviour.
+            Hi, I'm <strong><code>[NAME_PLACEHOLDER]</code></strong>, a final-year B.Tech CSE student, and Whisper is my individual project on <strong><code>API rate limiting</code></strong>. I picked rate limiting because it's a real piece of backend infrastructure — the kind of thing that quietly protects every API you've ever used, but that almost no student project actually builds from scratch.
+          </p>
+
+          <p className="mt-3 text-base leading-7 text-text-secondary max-w-3xl mx-auto">
+            I wanted to do that part from scratch. Whisper itself is a small direct-messaging app where you message anyone by their short user ID. But the messaging is really just a place for the rate limiter to live and be visible — sending too many messages too fast triggers it, and you see exactly what happens. Below is how it works, what it's made of, and how to try it out for yourself.
           </p>
         </header>
 
