@@ -154,7 +154,7 @@ userRoute.delete(
 userRoute.post(
   '/block/:userId',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 15 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId
@@ -173,7 +173,7 @@ userRoute.post(
 userRoute.post(
   '/unblock/:userId',
   authMiddleware,
-  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 60 * 1000, by: 'user' }),
+  rateLimiter({ algorithm: 'sliding-window', limit: 5, windowMs: 15 * 1000, by: 'user' }),
   async (req, res) => {
     try {
       const me = req.user.userId

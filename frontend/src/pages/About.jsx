@@ -107,7 +107,7 @@ export default function About() {
             </div>
             <div className="p-4 rounded-2xl border border-line bg-raised">
               <div className="font-semibold">Mutation protection</div>
-              <div className="text-text-secondary text-sm">5 block/unblock actions per minute (per user) — prevents rapid toggle abuse and protects database writes.</div>
+                <div className="text-text-secondary text-sm">5 block/unblock actions per 15 seconds (per user) — prevents rapid toggle abuse and protects database writes.</div>
             </div>
           </div>
           <p className="mt-4 text-text-secondary">Each layer catches a different abuse pattern. A request must pass all three to go through.</p>
