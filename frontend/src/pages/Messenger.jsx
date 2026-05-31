@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useTheme } from '../context/ThemeContext.jsx'
 import { api, readRateLimitHeaders } from '../lib/api.js'
@@ -544,6 +545,9 @@ export default function Messenger() {
         </div>
 
         <div className="relative flex items-center gap-2">
+          <Link to="/about" className="hidden md:inline-flex btn-ghost px-3.5 py-2 rounded-full bg-transparent text-sm text-text-secondary hover:text-primary transition">
+            About
+          </Link>
           <button
             ref={unreadButtonRef}
             onClick={() => setUnreadOpen((value) => !value)}

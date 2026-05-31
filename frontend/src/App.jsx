@@ -5,6 +5,7 @@ import Login from './pages/Login.jsx'
 import Landing from './pages/Landing.jsx'
 import Signup from './pages/Signup.jsx'
 import Messenger from './pages/Messenger.jsx'
+import About from './pages/About.jsx'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -36,6 +37,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/signup" element={user ? <Navigate to="/" replace /> : <Signup />} />
+        <Route path="/about" element={<About />} />
         <Route path="/" element={<HomeRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

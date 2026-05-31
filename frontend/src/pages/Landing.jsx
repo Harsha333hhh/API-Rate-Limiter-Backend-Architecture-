@@ -36,6 +36,9 @@ export default function Landing() {
           <div className="font-display text-xl md:text-2xl tracking-tight">Whisper</div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 ml-auto">
+          <Link to="/about" className="hidden md:inline-flex btn-ghost px-3.5 sm:px-4 py-2 rounded-full bg-transparent text-sm sm:text-base">
+            About
+          </Link>
           <Link to="/login" className="btn-ghost px-3.5 sm:px-4 py-2 rounded-full bg-transparent text-sm sm:text-base">
             Log in
           </Link>
