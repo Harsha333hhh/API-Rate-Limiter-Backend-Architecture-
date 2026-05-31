@@ -100,6 +100,7 @@ export default function Messenger() {
   const [searchId, setSearchId] = useState('')
   const [rl, setRl] = useState(null)
   const [blocked, setBlocked] = useState(false)
+  const [blockedUsers, setBlockedUsers] = useState([])
   const [retryAfter, setRetryAfter] = useState(0)
   const [toast, setToast] = useState('')
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -135,6 +136,15 @@ export default function Messenger() {
     }
   }
 
+  const loadBlockedUsers = async () => {
+    try {
+      const { data } = await api.get('/user-api/blocked')
+      setBlockedUsers(data.payload || [])
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   const loadConversation = async (otherId) => {
     try {
       const { data } = await api.get(`/message-api/messages/${otherId}`)
@@ -153,7 +163,7 @@ export default function Messenger() {
   }
 
   const refreshDashboard = async () => {
-    await Promise.all([loadConversations(), loadUnread()])
+    await Promise.all([loadConversations(), loadUnread(), loadBlockedUsers()])
   }
 
   useEffect(() => {
@@ -373,6 +383,7 @@ export default function Messenger() {
   const unreadCounts = unreadInfo.counts || {}
   const unreadRecent = unreadInfo.recent || []
   const totalUnread = unreadInfo.total || 0
+  const isConversationBlocked = blockedUsers.some((person) => person.userId === activeId)
 
   const renderMenuContent = () => (
     <div className="space-y-3">
@@ -580,7 +591,6 @@ export default function Messenger() {
                             e.stopPropagation()
                             try {
                               await api.post(`/user-api/block/${conversation.userId}`)
-                              await api.delete(`/message-api/conversations/${conversation.userId}`)
                               await refreshDashboard()
                               setOpenMenuFor(null)
                             } catch (err) {
@@ -710,6 +720,15 @@ export default function Messenger() {
       </header>
 
       <section className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-6 space-y-3">
+        {activeId && isConversationBlocked && (
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 shadow-sm">
+            <div className="font-semibold">Blocked conversation</div>
+            <div>
+              You blocked this user. The thread stays in your sidebar, older messages stay visible, and they can no longer message you.
+            </div>
+          </div>
+        )}
+
         {!activeId ? (
           <div className="h-full min-h-[45vh] flex items-center justify-center">
             <div className="text-center max-w-md">
