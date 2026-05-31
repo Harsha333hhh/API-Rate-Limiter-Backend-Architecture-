@@ -5,29 +5,14 @@ import { api } from '../lib/api.js'
 export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, onDeleteAccount }) {
   const [name, setName] = useState(user?.name || '')
   const [error, setError] = useState('')
-  const [blocked, setBlocked] = useState([])
-  const [loadingBlocked, setLoadingBlocked] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
       setName(user?.name || '')
       setError('')
-      fetchBlocked()
     }
   }, [isOpen, user])
-
-  const fetchBlocked = async () => {
-    setLoadingBlocked(true)
-    try {
-      const { data } = await api.get('/user-api/blocked')
-      setBlocked(data.payload || [])
-    } catch (e) {
-      setBlocked([])
-    } finally {
-      setLoadingBlocked(false)
-    }
-  }
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -40,15 +25,6 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
       onClose()
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to update profile')
-    }
-  }
-
-  const handleUnblock = async (userId) => {
-    try {
-      await api.post(`/user-api/unblock/${userId}`)
-      await fetchBlocked()
-    } catch (e) {
-      console.error(e)
     }
   }
 
@@ -121,29 +97,6 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
           </div>
 
           <div className="mt-6 border-t border-line pt-4 space-y-3">
-            <div>
-              <div className="text-sm text-muted mb-2">Blocked users</div>
-              {loadingBlocked ? (
-                <div className="text-sm text-text-secondary">Loading…</div>
-              ) : blocked.length === 0 ? (
-                <div className="text-sm text-text-secondary">No blocked users</div>
-              ) : (
-                <div className="space-y-2">
-                  {blocked.map((b) => (
-                    <div key={b.userId} className="flex items-center justify-between gap-3 rounded-md p-2 border border-line bg-raised">
-                      <div>
-                        <div className="font-medium text-text">{b.name}</div>
-                        <div className="font-mono text-xs text-muted">{b.userId}</div>
-                      </div>
-                      <div>
-                        <button onClick={() => handleUnblock(b.userId)} className="btn-ghost text-sm">Unblock</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
             <div className="pt-4 border-t border-line">
               <div className="text-sm font-semibold text-red-600 mb-2">Danger zone</div>
               <div className="text-sm text-text-secondary mb-3">This action will delete your account. Past messages will remain but show as from 'Deleted user'.</div>

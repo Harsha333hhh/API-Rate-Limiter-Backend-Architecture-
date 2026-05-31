@@ -8,6 +8,7 @@ import RateLimitMeter from '../components/RateLimitMeter.jsx'
 import Avatar from '../components/Avatar.jsx'
 import ProfileModal from '../components/ProfileModal.jsx'
 import CustomizationModal from '../components/CustomizationModal.jsx'
+import BlockedUsersModal from '../components/BlockedUsersModal.jsx'
 
 function SearchIcon() {
   return (
@@ -67,6 +68,14 @@ function MenuIcon({ type }) {
       </svg>
     )
   }
+  if (type === 'blocked') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
+        <path d="M8 7h8M8 12h8M8 17h5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M6.5 5.5h11A1.5 1.5 0 0 1 19 7v10a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 17V7A1.5 1.5 0 0 1 6.5 5.5Z" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   return (
     <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8">
       <path d="M10 17l-1 4h9a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H9l1 4" strokeLinecap="round" strokeLinejoin="round" />
@@ -105,6 +114,7 @@ export default function Messenger() {
   const [toast, setToast] = useState('')
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showCustomizationModal, setShowCustomizationModal] = useState(false)
+  const [showBlockedUsersModal, setShowBlockedUsersModal] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [copiedId, setCopiedId] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -164,6 +174,57 @@ export default function Messenger() {
 
   const refreshDashboard = async () => {
     await Promise.all([loadConversations(), loadUnread(), loadBlockedUsers()])
+  }
+
+  const resetConversationView = () => {
+    setActiveId('')
+    setActiveName('')
+    setMessages([])
+    setText('')
+    setRl(null)
+    setBlocked(false)
+    setRetryAfter(0)
+    setMobileView('list')
+  }
+
+  const handleBlockUser = async (userId) => {
+    try {
+      await api.post(`/user-api/block/${userId}`)
+      await refreshDashboard()
+      setOpenMenuFor(null)
+      showToast('User blocked')
+    } catch (error) {
+      console.error(error)
+      setOpenMenuFor(null)
+      showToast(error.response?.data?.message || 'Could not block user')
+    }
+  }
+
+  const handleUnblockUser = async (userId) => {
+    try {
+      await api.post(`/user-api/unblock/${userId}`)
+      await refreshDashboard()
+      setOpenMenuFor(null)
+      showToast('User unblocked')
+    } catch (error) {
+      console.error(error)
+      setOpenMenuFor(null)
+      showToast(error.response?.data?.message || 'Could not unblock user')
+    }
+  }
+
+  const handleDeleteChat = async (userId) => {
+    try {
+      await api.delete(`/message-api/conversations/${userId}`)
+      await refreshDashboard()
+      if (activeId === userId) {
+        resetConversationView()
+      }
+      setOpenMenuFor(null)
+    } catch (error) {
+      console.error(error)
+      setOpenMenuFor(null)
+    }
   }
 
   useEffect(() => {
@@ -304,6 +365,11 @@ export default function Messenger() {
     setUnreadOpen(false)
     setMenuOpen(false)
     setMobileView('chat')
+  }
+
+  const openBlockedUsersModal = async () => {
+    await loadBlockedUsers()
+    setShowBlockedUsersModal(true)
   }
 
   const searchConversation = async (event) => {
@@ -455,6 +521,14 @@ export default function Messenger() {
           </button>
 
           <button
+            onClick={openBlockedUsersModal}
+            className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+          >
+            <MenuIcon type="blocked" />
+            <span className="font-medium text-text">Blocked users</span>
+          </button>
+
+          <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-red-500/5 hover:text-red-600 transition"
           >
@@ -573,14 +647,7 @@ export default function Messenger() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation()
-                            try {
-                              await api.delete(`/message-api/conversations/${conversation.userId}`)
-                              await refreshDashboard()
-                              setOpenMenuFor(null)
-                            } catch (err) {
-                              console.error(err)
-                              setOpenMenuFor(null)
-                            }
+                            await handleDeleteChat(conversation.userId)
                           }}
                           className="w-full text-left px-4 py-3 hover:bg-primary-soft transition"
                         >
@@ -589,18 +656,15 @@ export default function Messenger() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation()
-                            try {
-                              await api.post(`/user-api/block/${conversation.userId}`)
-                              await refreshDashboard()
-                              setOpenMenuFor(null)
-                            } catch (err) {
-                              console.error(err)
-                              setOpenMenuFor(null)
+                            if (isConversationBlocked) {
+                              await handleUnblockUser(conversation.userId)
+                              return
                             }
+                            await handleBlockUser(conversation.userId)
                           }}
                           className="w-full text-left px-4 py-3 hover:bg-primary-soft transition text-text"
                         >
-                          Block user
+                          {isConversationBlocked ? 'Unblock user' : 'Block user'}
                         </button>
                       </div>
                     )}
@@ -722,10 +786,17 @@ export default function Messenger() {
       <section className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-6 space-y-3">
         {activeId && isConversationBlocked && (
           <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 shadow-sm">
-            <div className="font-semibold">Blocked conversation</div>
-            <div>
-              You blocked this user. The thread stays in your sidebar, older messages stay visible, and they can no longer message you.
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-semibold">Blocked conversation</span>
+              <button
+                type="button"
+                onClick={() => handleUnblockUser(activeId)}
+                className="inline-flex items-center rounded-full border border-amber-300 bg-white/70 px-2.5 py-0.5 text-xs font-semibold text-amber-900 hover:bg-white transition"
+              >
+                Unblock
+              </button>
             </div>
+            <div>You blocked this user. They can't send you messages.</div>
           </div>
         )}
 
@@ -857,6 +928,12 @@ export default function Messenger() {
         onSave={handleUpdateProfile}
         isSaving={isSaving}
         onDeleteAccount={handleAccountDelete}
+      />
+
+      <BlockedUsersModal
+        isOpen={showBlockedUsersModal}
+        onClose={() => setShowBlockedUsersModal(false)}
+        onChanged={refreshDashboard}
       />
 
       <CustomizationModal isOpen={showCustomizationModal} onClose={() => setShowCustomizationModal(false)} />

@@ -159,9 +159,14 @@ userRoute.post(
     try {
       const me = req.user.userId
       const target = req.params.userId
+      if (!target) return res.status(400).json({ message: 'userId is required' })
       if (me === target) return res.status(400).json({ message: 'Cannot block yourself' })
-      await UserModel.findOneAndUpdate({ userId: me }, { $addToSet: { blocked: target } })
-      res.status(200).json({ message: 'User blocked', blocked: target })
+
+      const targetUser = await UserModel.findOne({ userId: target }).select('userId')
+      if (!targetUser) return res.status(404).json({ message: 'No user with that ID' })
+
+      await UserModel.updateOne({ userId: me }, { $addToSet: { blocked: targetUser.userId } })
+      res.status(200).json({ message: 'User blocked', blocked: targetUser.userId })
     } catch (err) {
       res.status(500).json({ message: 'error', reason: err.message })
     }
@@ -193,10 +198,10 @@ userRoute.get(
   rateLimiter({ algorithm: 'sliding-window', limit: 10, windowMs: 60 * 1000, by: 'user' }),
   async (req, res) => {
     try {
-      const me = await UserModel.findOne({ userId: req.user.userId }).select('blocked')
-      const blockedIds = me?.blocked || []
+      const me = await UserModel.findOne({ userId: req.user.userId }).select('blocked').lean()
+      const blockedIds = Array.isArray(me?.blocked) ? me.blocked : []
       if (blockedIds.length === 0) return res.status(200).json({ message: 'Blocked retrieved', payload: [] })
-      const users = await UserModel.find({ userId: { $in: blockedIds } }).select('userId name isDeleted')
+      const users = await UserModel.find({ userId: { $in: blockedIds } }).select('userId name isDeleted').lean()
       const payload = blockedIds.map((id) => {
         const u = users.find((x) => x.userId === id)
         return { userId: id, name: u ? (u.isDeleted ? 'Deleted user' : u.name) : 'Unknown' }

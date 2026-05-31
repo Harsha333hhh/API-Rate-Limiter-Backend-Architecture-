@@ -110,6 +110,7 @@ export default function About() {
                 <div className="text-text-secondary text-sm">5 block/unblock actions per 15 seconds (per user) — prevents rapid toggle abuse and protects database writes.</div>
             </div>
           </div>
+          <p className="mt-4 text-text-secondary">Blocking a user prevents new messages from reaching you. Your chat history stays visible, and you can unblock them any time.</p>
           <p className="mt-4 text-text-secondary">Each layer catches a different abuse pattern. A request must pass all three to go through.</p>
         </section>
 
