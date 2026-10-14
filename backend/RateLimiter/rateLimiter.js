@@ -19,6 +19,11 @@
 import { fixedWindow } from './algorithms/fixedWindow.js'
 import { slidingWindow } from './algorithms/slidingWindow.js'
 import { tokenBucket } from './algorithms/tokenBucket.js'
+import {
+  recordRateLimitAllowed,
+  recordRateLimitError,
+  recordRateLimitRejected,
+} from '../services/rateLimitMonitoring.js'
 
 // map the algorithm name to its function
 const algorithms = {
@@ -74,17 +79,30 @@ export function rateLimiter(options) {
       // 4. if over the limit, block with 429 Too Many Requests
       if (!result.allowed) {
         res.set('Retry-After', Math.ceil(result.resetMs / 1000))
+        recordRateLimitRejected(req, {
+          by,
+          key,
+          algorithm,
+          limit: result.limit,
+          windowMs,
+          resetMs: result.resetMs,
+        })
         return res.status(429).json({
-          message: 'Too many requests, please slow down',
+          message: `Request blocked by the ${algorithm} rate limit (${result.limit} requests). Wait ${Math.ceil(Math.max(0, result.resetMs) / 1000)} seconds before retrying.`,
+          limit: result.limit,
+          remaining: result.remaining,
           retryAfterSeconds: Math.ceil(result.resetMs / 1000),
           algorithm,
         })
       }
 
+      recordRateLimitAllowed(req, res, { algorithm, limit: result.limit, windowMs })
+
       // 5. otherwise let the request through to the real handler
       next()
     } catch (err) {
       // if the limiter itself errors, don't block the app - just let it through
+      recordRateLimitError(req)
       console.error('Rate limiter error:', err.message)
       next()
     }

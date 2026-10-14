@@ -9,6 +9,14 @@ import Avatar from '../components/Avatar.jsx'
 import ProfileModal from '../components/ProfileModal.jsx'
 import CustomizationModal from '../components/CustomizationModal.jsx'
 import BlockedUsersModal from '../components/BlockedUsersModal.jsx'
+import {
+  createConversationKeyMaterial,
+  decryptMessageCopy,
+  encryptMessageCopies,
+  rewrapConversationPrivateKey,
+  unlockConversationPrivateKey,
+  validatePin,
+} from '../lib/conversationCrypto.js'
 
 function SearchIcon() {
   return (
@@ -105,9 +113,14 @@ export default function Messenger() {
   const [activeId, setActiveId] = useState('')
   const [activeName, setActiveName] = useState('')
   const [messages, setMessages] = useState([])
+  const [protection, setProtection] = useState({ own: null, peer: null })
+  const [protectionBusy, setProtectionBusy] = useState(false)
+  const [protectionError, setProtectionError] = useState('')
+  const [conversationSettingsOpen, setConversationSettingsOpen] = useState(false)
   const [text, setText] = useState('')
   const [searchId, setSearchId] = useState('')
   const [rl, setRl] = useState(null)
+  const [rateLimitExplanation, setRateLimitExplanation] = useState('')
   const [blocked, setBlocked] = useState(false)
   const [blockedUsers, setBlockedUsers] = useState([])
   const [retryAfter, setRetryAfter] = useState(0)
@@ -127,6 +140,15 @@ export default function Messenger() {
   const mobileMenuRef = useRef(null)
   const unreadMenuRef = useRef(null)
   const unreadButtonRef = useRef(null)
+  const protectionRef = useRef({ own: null, peer: null })
+  const privateKeyRef = useRef(null)
+  const conversationViewVersionRef = useRef(0)
+  const activeConversationIdRef = useRef('')
+
+  const updateProtection = (value) => {
+    protectionRef.current = value
+    setProtection(value)
+  }
 
   const loadConversations = async () => {
     try {
@@ -156,12 +178,232 @@ export default function Messenger() {
   }
 
   const loadConversation = async (otherId) => {
+    const viewVersion = conversationViewVersionRef.current
     try {
       const { data } = await api.get(`/message-api/messages/${otherId}`)
-      setMessages(data.payload || [])
+      const ownProtection = protectionRef.current.own
+      const privateKey = privateKeyRef.current
+      const loadedMessages = await Promise.all(
+        (data.payload || []).map(async (message) => {
+          if (!message.protectedCopy) return message
+          if (ownProtection?.status !== 'protected' || !privateKey) {
+            return { ...message, text: message.protectedCopy.ciphertext }
+          }
+          try {
+            return { ...message, text: await decryptMessageCopy(message.protectedCopy, privateKey) }
+          } catch {
+            return { ...message, text: '[Protected message could not be decrypted]' }
+          }
+        })
+      )
+      if (
+        viewVersion !== conversationViewVersionRef.current ||
+        activeConversationIdRef.current !== otherId
+      ) return
+      setMessages(loadedMessages)
     } catch (error) {
-      console.error(error)
+      if (error.response?.data?.code === 'PROTECTION_SYNC_REQUIRED' && privateKeyRef.current) {
+        try {
+          await synchronizeProtectedHistory(otherId)
+        } catch (syncError) {
+          if (
+            viewVersion !== conversationViewVersionRef.current ||
+            activeConversationIdRef.current !== otherId
+          ) return
+          console.error(syncError)
+          setMessages([{ _id: 'protection-sync-error', text: '[Protected messages need synchronization]', createdAt: new Date() }])
+        }
+      } else if (error.response?.data?.code !== 'PROTECTION_MIGRATION_PENDING') {
+        if (
+          viewVersion !== conversationViewVersionRef.current ||
+          activeConversationIdRef.current !== otherId
+        ) return
+        console.error(error)
+        if (error.response?.data?.code === 'PROTECTION_SYNC_REQUIRED') {
+          setMessages([{ _id: 'protection-sync', text: '[Unlock to synchronize protected messages]', createdAt: new Date() }])
+        }
+      } else {
+        if (
+          viewVersion !== conversationViewVersionRef.current ||
+          activeConversationIdRef.current !== otherId
+        ) return
+        setMessages([{ _id: 'protection-migration', text: '[Unlock to continue conversation history migration]', createdAt: new Date() }])
+      }
     }
+  }
+
+  const loadProtection = async (otherId) => {
+    const { data } = await api.get(`/conversation-api/${otherId}/protection`)
+    const value = { own: data.own || null, peer: data.peer || null }
+    if (activeConversationIdRef.current === otherId) updateProtection(value)
+    return value
+  }
+
+  const synchronizeProtectedHistory = async (otherId, ownSetting = protectionRef.current.own) => {
+    if (!ownSetting || !['migrating', 'protected'].includes(ownSetting.status)) {
+      throw new Error('Protected conversation settings are unavailable')
+    }
+    setProtectionBusy(true)
+    setProtectionError('')
+    const viewVersion = conversationViewVersionRef.current
+    try {
+      while (true) {
+        const { data } = await api.get(`/conversation-api/${otherId}/protection/migration-source`)
+        const batch = data.payload || []
+        if (batch.length === 0) break
+        const copies = []
+        for (const message of batch) {
+          if (typeof message.text !== 'string') {
+            throw new Error('History contains a message without recoverable plaintext')
+          }
+          const [protectedCopy] = await encryptMessageCopies(message.text, [
+            { userId: user.userId, publicKey: ownSetting.publicKey },
+          ])
+          copies.push({ messageId: message._id, protectedCopy })
+        }
+        for (let offset = 0; offset < copies.length; offset += 2) {
+          await api.post(`/conversation-api/${otherId}/protection/migrate`, {
+            copies: copies.slice(offset, offset + 2),
+          })
+        }
+      }
+      if (ownSetting.status === 'migrating') {
+        await api.post(`/conversation-api/${otherId}/protection/complete`)
+      }
+      const updated = await loadProtection(otherId)
+      if (
+        viewVersion === conversationViewVersionRef.current &&
+        activeConversationIdRef.current === otherId
+      ) {
+        await loadConversation(otherId)
+      }
+      return updated
+    } catch (error) {
+      const message = error.response?.data?.message || error.message || 'Could not synchronize protected conversation history'
+      setProtectionError(message)
+      throw error
+    } finally {
+      setProtectionBusy(false)
+    }
+  }
+
+  const enableConversationProtection = async () => {
+    if (!activeId || protectionBusy) return
+    const targetId = activeId
+    const viewVersion = conversationViewVersionRef.current
+    const warning = 'If you lose this PIN, protected messages cannot be recovered. This is personal protection, not end-to-end encryption. Existing history will be encrypted in batches before protection is enabled. Continue?'
+    if (!window.confirm(warning)) return
+
+    const pin = window.prompt('Create a PIN (8–128 characters). Do not reuse a password.')
+    if (!validatePin(pin)) {
+      showToast('PIN must be between 8 and 128 characters')
+      return
+    }
+    const confirmation = window.prompt('Confirm your PIN')
+    if (pin !== confirmation) {
+      showToast('PIN confirmation did not match')
+      return
+    }
+
+    setProtectionBusy(true)
+    setProtectionError('')
+    try {
+      const keyMaterial = await createConversationKeyMaterial(pin)
+      await api.post(`/conversation-api/${targetId}/protection`, {
+        publicKey: keyMaterial.publicKey,
+        privateKeyEnvelope: keyMaterial.privateKeyEnvelope,
+      })
+      if (
+        viewVersion === conversationViewVersionRef.current &&
+        activeConversationIdRef.current === targetId
+      ) {
+        privateKeyRef.current = keyMaterial.privateKey
+      }
+      const updated = await loadProtection(targetId)
+      await synchronizeProtectedHistory(targetId, updated.own)
+      showToast('Conversation protection enabled')
+    } catch (error) {
+      setProtectionError(error.response?.data?.message || error.message || 'Could not enable conversation protection')
+      showToast(error.response?.data?.message || error.message || 'Could not enable conversation protection')
+    } finally {
+      setProtectionBusy(false)
+    }
+  }
+
+  const unlockConversation = async () => {
+    if (!activeId || protectionBusy || !protection.own?.privateKeyEnvelope) return
+    const targetId = activeId
+    const pin = window.prompt('Enter your conversation PIN')
+    if (pin === null) return
+    setProtectionBusy(true)
+    setProtectionError('')
+    conversationViewVersionRef.current += 1
+    const viewVersion = conversationViewVersionRef.current
+    try {
+      const unlockedKey = await unlockConversationPrivateKey(protection.own.privateKeyEnvelope, pin)
+      if (
+        viewVersion !== conversationViewVersionRef.current ||
+        activeConversationIdRef.current !== targetId
+      ) return
+      privateKeyRef.current = unlockedKey
+      if (protection.own.status === 'migrating') {
+        await synchronizeProtectedHistory(targetId, protection.own)
+      } else {
+        await loadConversation(targetId)
+      }
+    } catch (error) {
+      if (
+        viewVersion !== conversationViewVersionRef.current ||
+        activeConversationIdRef.current !== targetId
+      ) return
+      conversationViewVersionRef.current += 1
+      privateKeyRef.current = null
+      setProtectionError(error.response?.data?.message || error.message || 'Could not unlock conversation')
+      showToast(error.response?.data?.message || error.message || 'Could not unlock conversation')
+    } finally {
+      setProtectionBusy(false)
+    }
+  }
+
+  const changeConversationPin = async () => {
+    if (!activeId || !privateKeyRef.current || protectionBusy) {
+      showToast('Unlock this conversation before changing its PIN')
+      return
+    }
+    const newPin = window.prompt('Enter a new PIN (8–128 characters)')
+    if (newPin === null) return
+    if (!validatePin(newPin)) {
+      showToast('PIN must be between 8 and 128 characters')
+      return
+    }
+    const confirmation = window.prompt('Confirm your new PIN')
+    if (newPin !== confirmation) {
+      showToast('PIN confirmation did not match')
+      return
+    }
+    setProtectionBusy(true)
+    try {
+      const privateKeyEnvelope = await rewrapConversationPrivateKey(privateKeyRef.current, newPin)
+      await api.patch(`/conversation-api/${activeId}/protection/key-envelope`, { privateKeyEnvelope })
+      await loadProtection(activeId)
+      showToast('Conversation PIN changed')
+    } catch (error) {
+      showToast(error.response?.data?.message || error.message || 'Could not change PIN')
+    } finally {
+      setProtectionBusy(false)
+    }
+  }
+
+  const lockConversation = () => {
+    conversationViewVersionRef.current += 1
+    privateKeyRef.current = null
+    setText('')
+    setMessages((current) =>
+      current.map((message) =>
+        message.protectedCopy ? { ...message, text: message.protectedCopy.ciphertext } : message
+      )
+    )
+    setConversationSettingsOpen(false)
   }
 
   const markConversationRead = async (otherId) => {
@@ -177,11 +419,16 @@ export default function Messenger() {
   }
 
   const resetConversationView = () => {
+    conversationViewVersionRef.current += 1
+    activeConversationIdRef.current = ''
+    privateKeyRef.current = null
+    updateProtection({ own: null, peer: null })
     setActiveId('')
     setActiveName('')
     setMessages([])
     setText('')
     setRl(null)
+    setRateLimitExplanation('')
     setBlocked(false)
     setRetryAfter(0)
     setMobileView('list')
@@ -230,6 +477,15 @@ export default function Messenger() {
   }
 
   useEffect(() => {
+    conversationViewVersionRef.current += 1
+    activeConversationIdRef.current = ''
+    privateKeyRef.current = null
+    updateProtection({ own: null, peer: null })
+    setActiveId('')
+    setMessages([])
+  }, [user?.userId])
+
+  useEffect(() => {
     refreshDashboard()
   }, [])
 
@@ -256,6 +512,11 @@ export default function Messenger() {
     }, 0)
 
     const syncConversation = async () => {
+      try {
+        await loadProtection(activeId)
+      } catch (error) {
+        console.error(error)
+      }
       await markConversationRead(activeId)
       await Promise.all([loadConversation(activeId), loadConversations(), loadUnread()])
     }
@@ -298,6 +559,7 @@ export default function Messenger() {
   const navigate = useNavigate()
 
   const handleAccountDelete = async () => {
+    lockConversation()
     try {
       await logout()
     } catch (e) {
@@ -358,14 +620,21 @@ export default function Messenger() {
   }
 
   const openConversation = (conversation) => {
+    conversationViewVersionRef.current += 1
+    activeConversationIdRef.current = conversation.userId
+    privateKeyRef.current = null
+    updateProtection({ own: null, peer: null })
+    setMessages([])
     setActiveId(conversation.userId)
     setActiveName(conversation.name)
     setSearchId('')
     setRl(null)
+    setRateLimitExplanation('')
     setBlocked(false)
     setRetryAfter(0)
     setUnreadOpen(false)
     setMenuOpen(false)
+    setConversationSettingsOpen(false)
     setMobileView('chat')
   }
 
@@ -396,11 +665,25 @@ export default function Messenger() {
     if (blocked || !text.trim() || !activeId) return
 
     try {
+      const currentProtection = protectionRef.current
+      const recipients = [
+        ...(currentProtection.own
+          ? [{ userId: user.userId, publicKey: currentProtection.own.publicKey }]
+          : []),
+        ...(currentProtection.peer
+          ? [{ userId: activeId, publicKey: currentProtection.peer.publicKey }]
+          : []),
+      ]
+      const protectedCopies = recipients.length
+        ? await encryptMessageCopies(text.trim(), recipients)
+        : []
       const response = await api.post('/message-api/messages', {
         receiverId: activeId,
-        text: text.trim(),
+        ...(protectedCopies.length === 2 ? {} : { text: text.trim() }),
+        protectedCopies,
       })
       setRl(readRateLimitHeaders(response))
+      setRateLimitExplanation('')
       setBlocked(false)
       setText('')
       await Promise.all([loadConversation(activeId), loadConversations(), loadUnread()])
@@ -408,11 +691,19 @@ export default function Messenger() {
     } catch (error) {
       if (error.response?.status === 429) {
         const headers = readRateLimitHeaders(error)
-        const retry = Number(error.response.data?.retryAfterSeconds) || Number(headers.reset) || 5
+        const retryFromBody = Number(error.response.data?.retryAfterSeconds)
+        const retryFromHeader = Number(headers.reset)
+        const retryValue = Number.isFinite(retryFromBody)
+          ? retryFromBody
+          : retryFromHeader
+        const retry = Number.isFinite(retryValue) && retryValue > 0 ? Math.ceil(retryValue) : 0
         setRl(headers)
-        setBlocked(true)
+        setRateLimitExplanation(
+          error.response.data?.message || 'The server rejected this request because its configured rate limit was reached.'
+        )
+        setBlocked(retry > 0)
         setRetryAfter(retry)
-        showToast('Rate limit hit — slow down')
+        showToast(error.response.data?.message || 'Rate limit reached. Please try again later.')
         inputRef.current?.focus()
       } else {
         showToast(error.response?.data?.message || 'Could not send')
@@ -443,6 +734,7 @@ export default function Messenger() {
   }
 
   const handleLogout = async () => {
+    lockConversation()
     await logout()
     setUnreadOpen(false)
     setMenuOpen(false)
@@ -513,6 +805,25 @@ export default function Messenger() {
             <MenuIcon type="profile" />
             <span className="font-medium text-text">Profile</span>
           </button>
+
+          {user.role === 'admin' && (
+            <>
+              <Link
+                to="/rate-limit-dashboard"
+                onClick={() => setMenuOpen(false)}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+              >
+                <span className="font-medium text-text">Rate-Limit Dashboard</span>
+              </Link>
+              <Link
+                to="/server-health"
+                onClick={() => setMenuOpen(false)}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-line text-left hover:bg-primary-soft transition"
+              >
+                <span className="font-medium text-text">View Server Health</span>
+              </Link>
+            </>
+          )}
 
           <button
             onClick={() => setShowCustomizationModal(true)}
@@ -713,6 +1024,82 @@ export default function Messenger() {
         </div>
 
         <div className="relative flex items-center gap-2">
+          {activeId && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setConversationSettingsOpen((open) => !open)}
+                className="btn-ghost px-3 py-2 rounded-full text-sm"
+                aria-expanded={conversationSettingsOpen}
+              >
+                Conversation Settings
+              </button>
+              {conversationSettingsOpen && (
+                <div className="absolute right-0 top-12 z-40 w-64 rounded-2xl border border-line bg-surface p-2 shadow-soft">
+                  {!protection.own && (
+                    <button
+                      type="button"
+                      disabled={protectionBusy}
+                      onClick={enableConversationProtection}
+                      className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                    >
+                      Protect Conversation with PIN
+                    </button>
+                  )}
+                  {protection.own && (
+                    <>
+                      <div className="px-3 py-2 text-xs text-text-secondary">
+                        {protection.own.status === 'migrating' ? 'History migration is incomplete' : 'Personal PIN protection is enabled'}
+                      </div>
+                      {protection.own.status === 'migrating' && (
+                        <button
+                          type="button"
+                          disabled={protectionBusy}
+                          onClick={async () => {
+                            try {
+                              if (privateKeyRef.current) await synchronizeProtectedHistory(activeId)
+                              else await unlockConversation()
+                            } catch (error) {
+                              showToast(error.response?.data?.message || error.message || 'Migration could not continue')
+                            }
+                          }}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                        >
+                          {privateKeyRef.current ? 'Resume History Migration' : 'Unlock and Resume Migration'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={protectionBusy || !privateKeyRef.current}
+                        onClick={changeConversationPin}
+                        className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                      >
+                        Change PIN
+                      </button>
+                      {privateKeyRef.current ? (
+                        <button
+                          type="button"
+                          onClick={lockConversation}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft"
+                        >
+                          Lock Conversation
+                        </button>
+                      ) : protection.own.status === 'protected' ? (
+                        <button
+                          type="button"
+                          disabled={protectionBusy}
+                          onClick={unlockConversation}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                        >
+                          Unlock Conversation
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <Link to="/about" className="hidden md:inline-flex btn-ghost px-3.5 py-2 rounded-full bg-transparent text-sm text-text-secondary hover:text-primary transition">
             About
           </Link>
@@ -840,7 +1227,9 @@ export default function Messenger() {
                     mine ? 'bg-sent text-white rounded-br-md' : 'bg-received text-text rounded-bl-md'
                   }`}
                 >
-                  {message.text}
+                  <span className={message.protectedCopy && !privateKeyRef.current ? 'break-all' : ''}>
+                    {message.text}
+                  </span>
                   <div className={`mt-1 text-[11px] font-mono ${mine ? 'text-white/70' : 'text-text-secondary'}`}>
                     {formatTime(message.createdAt)}
                   </div>
@@ -853,6 +1242,14 @@ export default function Messenger() {
       </section>
 
       <footer className="border-t border-line bg-surface/95 backdrop-blur-sm px-4 md:px-6 py-4 space-y-3 shrink-0">
+        {protectionError && (
+          <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {protectionError}
+          </div>
+        )}
+        {protection.own?.status === 'protected' && !privateKeyRef.current && (
+          <div className="text-xs text-text-secondary">Protected messages are locked on this device. Unlock them from Conversation Settings.</div>
+        )}
         <form onSubmit={sendMessage} className="flex gap-3 items-center">
           <input
             value={text}
@@ -866,7 +1263,12 @@ export default function Messenger() {
           </button>
         </form>
 
-        <RateLimitMeter rl={rl} blocked={blocked} retryAfter={retryAfter} />
+        <RateLimitMeter
+          rl={rl}
+          blocked={blocked}
+          retryAfter={retryAfter}
+          explanation={rateLimitExplanation}
+        />
       </footer>
     </>
   )

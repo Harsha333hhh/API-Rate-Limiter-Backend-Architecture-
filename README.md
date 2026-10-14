@@ -62,11 +62,36 @@ A plain `Map` with a periodic cleanup that drops expired entries so it doesn't g
 |---|---|---|---|
 | `POST /user-api/users` (signup) | 5 / 10 min | fixed window | ip |
 | `POST /user-api/login` | 5 / min | fixed window | ip |
-| `POST /message-api/messages` (send) | 10 / min | sliding window | user |
-| `POST /message-api/messages` (send) | 5 / min | sliding window | pair |
-| `GET /message-api/messages/:id` (read) | 60 / min | sliding window | user |
+| `PATCH /user-api/me` (profile edit) | 10 / min | sliding window | user |
+| `DELETE /user-api/me` (account delete) | 10 / min | sliding window | user |
+| `POST /user-api/block/:userId` and `/unblock/:userId` | 5 / 15 sec | sliding window | user |
+| `GET /user-api/blocked` | 10 / min | sliding window | user |
+| `POST /message-api/messages` (send) | 10 / 2 sec | sliding window | user |
+| `POST /message-api/messages` (send) | 150 / min | sliding window | user |
+| `POST /message-api/messages` (send) | 60 / min | sliding window | pair |
+| `DELETE /message-api/conversations/:otherUserId` | 10 / min | sliding window | user |
+| `GET /message-api/messages/:otherUserId` (read) | 200 / min | sliding window | user |
+| `PATCH /message-api/messages/read/:otherUserId` | 200 / min | sliding window | user |
+| `GET /message-api/unread` | 200 / min | sliding window | user |
+| `GET /message-api/conversations` | 200 / min | sliding window | user |
 
-Note that the send route stacks **two** limiters — both must pass.
+The send route stacks **three** limiters; all must pass. Token bucket is implemented but is not currently configured on a route.
+
+### Rate-limit dashboard
+
+Administrators can open `/rate-limit-dashboard` from the account menu. The dashboard API is `GET /monitoring-api/rate-limits`; the backend requires an authenticated JWT with the `admin` role and a configured `JWT_SECRET` (the development fallback is rejected for admin access). Public signup always assigns the `user` role, so an administrator account must be provisioned by a trusted operator and must log in again to receive an updated role claim.
+
+Administrators can also open `/server-health` or use `GET /monitoring-api/server-health`. The endpoint reports process-local API latency p95 over the latest 300 completed API requests, current in-flight API requests, and Node.js event-loop delay p95 when samples are available. The view reports `unknown` before completed API latency samples exist unless another available measurement has already met a degraded threshold. It reports `degraded` when any measured threshold is met: 1000 ms API latency p95, 25 in-flight requests, or 100 ms event-loop delay p95. Health monitoring does not change rate limits or request handling.
+
+Counts, recent events, incidents, health samples, and warning patterns are held in bounded process-local memory. They reset when the backend process restarts and are local to the instance serving the dashboard request. Request totals count limiter decisions once per request, even when send-message limiters are stacked. Saved-message totals increment only after MongoDB saves a message. Incident recovery requires a saved message for the same user or pair after the recorded restriction expiry; elapsed time alone leaves the incident awaiting confirmation. A warning-only pattern is shown after at least five retained rejection events for one rate-limit scope in 60 seconds; it is not evidence of intent and does not trigger enforcement. Monitoring data is not written to MongoDB and responses omit message content and client identifiers.
+
+### Personal PIN-protected conversations
+
+Conversation Settings can protect an individual user's copy of a conversation. The browser encrypts message content with AES-256-GCM, wraps per-message keys with the recipient's RSA-OAEP public key, and encrypts the user's private key with an AES-GCM key derived from the PIN using PBKDF2-HMAC-SHA-256 (600,000 iterations and a fresh salt). Changing the PIN rewraps that private key. PINs and plaintext keys are not stored in MongoDB or browser storage; locking, logout, conversation switching, and refresh discard the in-memory key reference. A lost PIN has no recovery bypass.
+
+Existing history is migrated in bounded batches. During migration, the ordinary conversation API does not return plaintext; migration can resume after entering the PIN. Protected message ciphertext is currently limited to 32,768 base64url characters, so an older message beyond that supported encrypted size cannot be migrated and protection will remain incomplete rather than silently completing. A detected missing protected copy is reported and can be synchronized from retained plaintext.
+
+This is **personal protection, not end-to-end encryption**. Plaintext is retained for an unprotected participant's copy and may be handled by the backend during history migration. The backend removes retained plaintext for a message only after both participants have protected copies. Enabling protection requires a MongoDB replica set or sharded deployment with transaction support so message writes serialize safely against protection-state changes. On a standalone MongoDB server, normal messaging continues, but protection cannot be enabled and protected-message sends are unavailable.
 
 ---
 

@@ -30,7 +30,7 @@ export function remove(key) {
 
 // CLEANUP: every so often, remove entries that have fully expired so the
 // Map doesn't grow forever. Each stored value carries an "expiresAt" timestamp.
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now()
   for (const [key, value] of store.entries()) {
     if (value && value.expiresAt && now > value.expiresAt) {
@@ -38,3 +38,5 @@ setInterval(() => {
     }
   }
 }, 60 * 1000) // run cleanup once a minute
+
+cleanupInterval.unref()
