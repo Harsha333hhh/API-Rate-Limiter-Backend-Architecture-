@@ -117,6 +117,8 @@ npm install
 npm run dev               # http://localhost:5173
 ```
 
+For deployment, set the frontend `VITE_API_URL` to the backend URL. On Render, set `FRONTEND_URL` to the exact Vercel origin used by the browser (scheme and hostname only, no trailing slash); separate multiple trusted origins with commas. Vercel preview deployments may require their own origin to be explicitly added and may be restricted by Vercel Deployment Protection. The frontend's `vercel.json` rewrite serves the SPA entry point for routes such as `/login` and `/signup`.
+
 ---
 
 ## How to demo it (for your viva)
