@@ -67,6 +67,26 @@ async function wrapPrivateKey(pin, privateKeyBytes) {
   }
 }
 
+async function unwrapPrivateKeyBytes(envelope, pin) {
+  if (
+    !envelope ||
+    envelope.version !== 1 ||
+    envelope.kdf !== 'PBKDF2-SHA-256' ||
+    envelope.iterations !== KDF_ITERATIONS
+  ) {
+    throw new Error('Unsupported protected conversation key format')
+  }
+  const crypto = requireCrypto()
+  const salt = fromBase64Url(envelope.salt, 64)
+  const iv = fromBase64Url(envelope.iv, 64)
+  const ciphertext = fromBase64Url(envelope.ciphertext, 4096)
+  if (salt.byteLength !== 16 || iv.byteLength !== 12) {
+    throw new Error('Invalid protected conversation key envelope')
+  }
+  const wrappingKey = await derivePinWrappingKey(pin, salt)
+  return bytesOf(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, wrappingKey, ciphertext))
+}
+
 export async function createConversationKeyMaterial(pin) {
   const crypto = requireCrypto()
   const pair = await crypto.subtle.generateKey(
@@ -98,31 +118,32 @@ export async function createConversationKeyMaterial(pin) {
 
 export async function unlockConversationPrivateKey(envelope, pin) {
   try {
-    if (
-      !envelope ||
-      envelope.version !== 1 ||
-      envelope.kdf !== 'PBKDF2-SHA-256' ||
-      envelope.iterations !== KDF_ITERATIONS
-    ) {
-      throw new Error('Unsupported protected conversation key format')
-    }
-    const crypto = requireCrypto()
-    const salt = fromBase64Url(envelope.salt, 64)
-    const iv = fromBase64Url(envelope.iv, 64)
-    const ciphertext = fromBase64Url(envelope.ciphertext, 4096)
-    if (salt.byteLength !== 16 || iv.byteLength !== 12) {
-      throw new Error('Invalid protected conversation key envelope')
-    }
-    const wrappingKey = await derivePinWrappingKey(pin, salt)
-    const privateKeyBytes = bytesOf(
-      await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, wrappingKey, ciphertext)
-    )
+    const privateKeyBytes = await unwrapPrivateKeyBytes(envelope, pin)
     try {
       return await crypto.subtle.importKey(
         'pkcs8',
         privateKeyBytes,
         { name: 'RSA-OAEP', hash: 'SHA-256' },
         true,
+        ['decrypt']
+      )
+    } finally {
+      privateKeyBytes.fill(0)
+    }
+  } catch {
+    throw new Error('PIN is incorrect or the protected key data is invalid')
+  }
+}
+
+export async function unlockNonExtractableConversationPrivateKey(envelope, pin) {
+  try {
+    const privateKeyBytes = await unwrapPrivateKeyBytes(envelope, pin)
+    try {
+      return await requireCrypto().subtle.importKey(
+        'pkcs8',
+        privateKeyBytes,
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
         ['decrypt']
       )
     } finally {
@@ -140,6 +161,18 @@ export async function rewrapConversationPrivateKey(privateKey, pin) {
     return await wrapPrivateKey(pin, privateKeyBytes)
   } finally {
     privateKeyBytes.fill(0)
+  }
+}
+
+export async function rewrapConversationPrivateKeyEnvelope(envelope, currentPin, newPin) {
+  let privateKeyBytes
+  try {
+    privateKeyBytes = await unwrapPrivateKeyBytes(envelope, currentPin)
+    return await wrapPrivateKey(newPin, privateKeyBytes)
+  } catch {
+    throw new Error('PIN is incorrect or the protected key data is invalid')
+  } finally {
+    privateKeyBytes?.fill(0)
   }
 }
 

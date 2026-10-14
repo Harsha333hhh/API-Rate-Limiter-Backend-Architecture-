@@ -18,6 +18,7 @@ const protectedConversationSchema = new mongoose.Schema(
   {
     otherUserId: { type: String, required: true },
     status: { type: String, enum: ['migrating', 'protected'], required: true },
+    protectionEnabled: { type: Boolean, default: false },
     publicKey: { type: String, required: true },
     privateKeyEnvelope: {
       version: { type: Number, required: true },

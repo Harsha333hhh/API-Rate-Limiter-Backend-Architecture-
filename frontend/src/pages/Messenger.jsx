@@ -13,10 +13,16 @@ import {
   createConversationKeyMaterial,
   decryptMessageCopy,
   encryptMessageCopies,
-  rewrapConversationPrivateKey,
+  rewrapConversationPrivateKeyEnvelope,
   unlockConversationPrivateKey,
   validatePin,
 } from '../lib/conversationCrypto.js'
+import {
+  cacheConversationPrivateKey,
+  clearCachedConversationPrivateKeys,
+  deleteCachedConversationPrivateKey,
+  getCachedConversationPrivateKey,
+} from '../lib/conversationKeyStore.js'
 
 function SearchIcon() {
   return (
@@ -182,7 +188,21 @@ export default function Messenger() {
     try {
       const { data } = await api.get(`/message-api/messages/${otherId}`)
       const ownProtection = protectionRef.current.own
-      const privateKey = privateKeyRef.current
+      let privateKey = privateKeyRef.current
+      if (
+        ownProtection?.status === 'protected' &&
+        ownProtection.enabled === false &&
+        !privateKey
+      ) {
+        privateKey = await getCachedConversationPrivateKey(user.userId, otherId)
+        if (
+          privateKey &&
+          viewVersion === conversationViewVersionRef.current &&
+          activeConversationIdRef.current === otherId
+        ) {
+          privateKeyRef.current = privateKey
+        }
+      }
       const loadedMessages = await Promise.all(
         (data.payload || []).map(async (message) => {
           if (!message.protectedCopy) return message
@@ -291,7 +311,7 @@ export default function Messenger() {
     if (!activeId || protectionBusy) return
     const targetId = activeId
     const viewVersion = conversationViewVersionRef.current
-    const warning = 'If you lose this PIN, protected messages cannot be recovered. This is personal protection, not end-to-end encryption. Existing history will be encrypted in batches before protection is enabled. Continue?'
+    const warning = 'If you lose this PIN, protected messages cannot be recovered. This is personal protection, not end-to-end encryption. Existing history will be encrypted in batches before PIN setup completes. Continue?'
     if (!window.confirm(warning)) return
 
     const pin = window.prompt('Create a PIN (8–128 characters). Do not reuse a password.')
@@ -321,10 +341,11 @@ export default function Messenger() {
       }
       const updated = await loadProtection(targetId)
       await synchronizeProtectedHistory(targetId, updated.own)
-      showToast('Conversation protection enabled')
+      await cacheConversationPrivateKey(user.userId, targetId, keyMaterial.privateKey)
+      showToast('PIN set up. Chat Protection is OFF.')
     } catch (error) {
-      setProtectionError(error.response?.data?.message || error.message || 'Could not enable conversation protection')
-      showToast(error.response?.data?.message || error.message || 'Could not enable conversation protection')
+      setProtectionError(error.response?.data?.message || error.message || 'Could not set up conversation PIN')
+      showToast(error.response?.data?.message || error.message || 'Could not set up conversation PIN')
     } finally {
       setProtectionBusy(false)
     }
@@ -348,9 +369,11 @@ export default function Messenger() {
       privateKeyRef.current = unlockedKey
       if (protection.own.status === 'migrating') {
         await synchronizeProtectedHistory(targetId, protection.own)
-      } else {
-        await loadConversation(targetId)
       }
+      if (protection.own.enabled === false) {
+        await cacheConversationPrivateKey(user.userId, targetId, unlockedKey)
+      }
+      await loadConversation(targetId)
     } catch (error) {
       if (
         viewVersion !== conversationViewVersionRef.current ||
@@ -366,10 +389,9 @@ export default function Messenger() {
   }
 
   const changeConversationPin = async () => {
-    if (!activeId || !privateKeyRef.current || protectionBusy) {
-      showToast('Unlock this conversation before changing its PIN')
-      return
-    }
+    if (!activeId || !protection.own?.privateKeyEnvelope || protectionBusy) return
+    const currentPin = window.prompt('Enter your current conversation PIN')
+    if (currentPin === null) return
     const newPin = window.prompt('Enter a new PIN (8–128 characters)')
     if (newPin === null) return
     if (!validatePin(newPin)) {
@@ -383,7 +405,11 @@ export default function Messenger() {
     }
     setProtectionBusy(true)
     try {
-      const privateKeyEnvelope = await rewrapConversationPrivateKey(privateKeyRef.current, newPin)
+      const privateKeyEnvelope = await rewrapConversationPrivateKeyEnvelope(
+        protection.own.privateKeyEnvelope,
+        currentPin,
+        newPin
+      )
       await api.patch(`/conversation-api/${activeId}/protection/key-envelope`, { privateKeyEnvelope })
       await loadProtection(activeId)
       showToast('Conversation PIN changed')
@@ -394,7 +420,9 @@ export default function Messenger() {
     }
   }
 
-  const lockConversation = () => {
+  const lockConversation = async () => {
+    const targetId = activeId
+    const keyToRestore = privateKeyRef.current
     conversationViewVersionRef.current += 1
     privateKeyRef.current = null
     setText('')
@@ -404,6 +432,94 @@ export default function Messenger() {
       )
     )
     setConversationSettingsOpen(false)
+    if (targetId && user?.userId) {
+      try {
+        await deleteCachedConversationPrivateKey(user.userId, targetId)
+      } catch (error) {
+        privateKeyRef.current = keyToRestore
+        if (keyToRestore) await loadConversation(targetId)
+        const message = error.message || 'Could not clear the cached conversation key; conversation remains unlocked'
+        setProtectionError(message)
+        showToast(message)
+      }
+    }
+  }
+
+  const setConversationProtectionEnabled = async (enabled) => {
+    if (!activeId || protectionBusy || protection.own?.status !== 'protected') return
+    const targetId = activeId
+    let keyToRestore = privateKeyRef.current
+    let keyForOff
+    let settingSaved = false
+    setProtectionBusy(true)
+    setProtectionError('')
+    try {
+      if (enabled) {
+        if (!keyToRestore) {
+          keyToRestore = await getCachedConversationPrivateKey(user.userId, targetId)
+        }
+        await deleteCachedConversationPrivateKey(user.userId, targetId)
+      } else {
+        keyForOff = privateKeyRef.current
+        if (!keyForOff) {
+          keyForOff = await getCachedConversationPrivateKey(user.userId, targetId)
+          if (!keyForOff) {
+            const pin = window.prompt('Enter your conversation PIN to turn protection off')
+            if (pin === null) return
+            keyForOff = await unlockConversationPrivateKey(protection.own.privateKeyEnvelope, pin)
+          }
+        }
+        await cacheConversationPrivateKey(user.userId, targetId, keyForOff)
+      }
+
+      if (enabled) {
+        if (activeConversationIdRef.current === targetId) {
+          conversationViewVersionRef.current += 1
+          privateKeyRef.current = null
+          setText('')
+          setMessages((current) =>
+            current.map((message) =>
+              message.protectedCopy ? { ...message, text: message.protectedCopy.ciphertext } : message
+            )
+          )
+        }
+      }
+      await api.patch(`/conversation-api/${targetId}/protection/enabled`, { enabled })
+      settingSaved = true
+      if (activeConversationIdRef.current === targetId) {
+        const updated = {
+          ...protectionRef.current,
+          own: { ...protectionRef.current.own, enabled },
+        }
+        updateProtection(updated)
+        if (!enabled) {
+          privateKeyRef.current = keyForOff
+          await loadConversation(targetId)
+        }
+      }
+      showToast(`Chat Protection is ${enabled ? 'ON' : 'OFF'}`)
+    } catch (error) {
+      if (enabled && !settingSaved && keyToRestore) {
+        try {
+          await cacheConversationPrivateKey(user.userId, targetId, keyToRestore)
+          privateKeyRef.current = keyToRestore
+          await loadConversation(targetId)
+        } catch (cacheError) {
+          setProtectionError(cacheError.message || 'Could not restore the device key cache')
+        }
+      } else if (!enabled && !settingSaved) {
+        try {
+          await deleteCachedConversationPrivateKey(user.userId, targetId)
+          privateKeyRef.current = null
+        } catch (cacheError) {
+          setProtectionError(cacheError.message || 'Could not remove the uncommitted device key cache')
+        }
+      }
+      setProtectionError(error.response?.data?.message || error.message || 'Could not update chat protection')
+      showToast(error.response?.data?.message || error.message || 'Could not update chat protection')
+    } finally {
+      setProtectionBusy(false)
+    }
   }
 
   const markConversationRead = async (otherId) => {
@@ -559,11 +675,16 @@ export default function Messenger() {
   const navigate = useNavigate()
 
   const handleAccountDelete = async () => {
-    lockConversation()
     try {
+      await clearCachedConversationPrivateKeys(user.userId)
+      privateKeyRef.current = null
+      setMessages([])
+      setConversations([])
+      setText('')
       await logout()
     } catch (e) {
-      console.error(e)
+      showToast(e.message || 'Could not clear protected keys before logout')
+      return
     }
     setShowProfileModal(false)
     navigate('/')
@@ -734,10 +855,18 @@ export default function Messenger() {
   }
 
   const handleLogout = async () => {
-    lockConversation()
-    await logout()
-    setUnreadOpen(false)
-    setMenuOpen(false)
+    try {
+      await clearCachedConversationPrivateKeys(user.userId)
+      privateKeyRef.current = null
+      setMessages([])
+      setConversations([])
+      setText('')
+      await logout()
+      setUnreadOpen(false)
+      setMenuOpen(false)
+    } catch (error) {
+      showToast(error.message || 'Could not clear protected keys before logout')
+    }
   }
 
   const unreadCounts = unreadInfo.counts || {}
@@ -1043,13 +1172,19 @@ export default function Messenger() {
                       onClick={enableConversationProtection}
                       className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
                     >
-                      Protect Conversation with PIN
+                      Set Up PIN
                     </button>
                   )}
                   {protection.own && (
                     <>
-                      <div className="px-3 py-2 text-xs text-text-secondary">
-                        {protection.own.status === 'migrating' ? 'History migration is incomplete' : 'Personal PIN protection is enabled'}
+                      <div className="space-y-1 px-3 py-2 text-xs text-text-secondary">
+                        <div>PIN: {protection.own.status === 'protected' ? 'Configured' : 'Setup incomplete'}</div>
+                        {protection.own.status === 'protected' && (
+                          <>
+                            <div>Chat Protection: {protection.own.enabled === false ? 'OFF' : 'ON'}</div>
+                            <div>Current session: {privateKeyRef.current ? 'Unlocked' : 'Locked'}</div>
+                          </>
+                        )}
                       </div>
                       {protection.own.status === 'migrating' && (
                         <button
@@ -1068,30 +1203,45 @@ export default function Messenger() {
                           {privateKeyRef.current ? 'Resume History Migration' : 'Unlock and Resume Migration'}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        disabled={protectionBusy || !privateKeyRef.current}
-                        onClick={changeConversationPin}
-                        className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
-                      >
-                        Change PIN
-                      </button>
-                      {privateKeyRef.current ? (
+                      {protection.own.status === 'protected' && (
                         <button
                           type="button"
+                          disabled={protectionBusy}
+                          onClick={() => setConversationProtectionEnabled(protection.own.enabled === false)}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                        >
+                          Chat Protection: {protection.own.enabled === false ? 'OFF — Turn ON' : 'ON — Turn OFF'}
+                        </button>
+                      )}
+                      {protection.own.status === 'protected' && (
+                        <button
+                          type="button"
+                          disabled={protectionBusy}
+                          onClick={changeConversationPin}
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
+                        >
+                          Change PIN
+                        </button>
+                      )}
+                      {protection.own.status === 'protected' &&
+                      protection.own.enabled !== false &&
+                      privateKeyRef.current ? (
+                        <button
+                          type="button"
+                          disabled={protectionBusy}
                           onClick={lockConversation}
-                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft"
+                          className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
                         >
                           Lock Conversation
                         </button>
-                      ) : protection.own.status === 'protected' ? (
+                      ) : protection.own.status === 'protected' && !privateKeyRef.current ? (
                         <button
                           type="button"
                           disabled={protectionBusy}
                           onClick={unlockConversation}
                           className="w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-primary-soft disabled:opacity-50"
                         >
-                          Unlock Conversation
+                          {protection.own.enabled === false ? 'Unlock on this device' : 'Unlock Conversation'}
                         </button>
                       ) : null}
                     </>
@@ -1247,9 +1397,16 @@ export default function Messenger() {
             {protectionError}
           </div>
         )}
-        {protection.own?.status === 'protected' && !privateKeyRef.current && (
-          <div className="text-xs text-text-secondary">Protected messages are locked on this device. Unlock them from Conversation Settings.</div>
-        )}
+        {protection.own?.status === 'protected' &&
+          protection.own.enabled !== false &&
+          !privateKeyRef.current && (
+            <div className="text-xs text-text-secondary">Chat Protection is ON. Messages are locked on this device; unlock them from Conversation Settings.</div>
+          )}
+        {protection.own?.status === 'protected' &&
+          protection.own.enabled === false &&
+          !privateKeyRef.current && (
+            <div className="text-xs text-text-secondary">Chat Protection is OFF, but this device needs the PIN once to read its encrypted messages.</div>
+          )}
         <form onSubmit={sendMessage} className="flex gap-3 items-center">
           <input
             value={text}

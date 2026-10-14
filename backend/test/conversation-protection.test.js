@@ -13,9 +13,16 @@ import {
   decryptMessageCopy,
   encryptMessageCopies,
   rewrapConversationPrivateKey,
+  rewrapConversationPrivateKeyEnvelope,
   unlockConversationPrivateKey,
   validatePin,
 } from '../../frontend/src/lib/conversationCrypto.js'
+import {
+  cacheConversationPrivateKey,
+  clearCachedConversationPrivateKeys,
+  deleteCachedConversationPrivateKey,
+  getCachedConversationPrivateKey,
+} from '../../frontend/src/lib/conversationKeyStore.js'
 
 const originalJwtSecret = process.env.JWT_SECRET
 
@@ -60,6 +67,98 @@ test('PIN validation rejects weak or overlong values', () => {
   assert.equal(validatePin('12345678'), true)
   assert.equal(validatePin('x'.repeat(129)), false)
   assert.equal(validatePin(null), false)
+})
+
+test('PIN envelope changes preserve the key and device cache stores non-extractable keys only', async (t) => {
+  const originalIndexedDB = globalThis.indexedDB
+  const databases = new Map()
+
+  class FakeDatabase {
+    constructor(name) {
+      this.stores = new Map()
+      this.objectStoreNames = {
+        contains: (storeName) => this.stores.has(storeName),
+      }
+      this.name = name
+    }
+
+    createObjectStore(storeName) {
+      this.stores.set(storeName, new Map())
+    }
+
+    transaction(storeName) {
+      const values = this.stores.get(storeName)
+      const transaction = {
+        objectStore: () => ({
+          put: (value, key) => this.request(() => values.set(key, value)),
+          get: (key) => this.request(() => values.get(key)),
+          delete: (key) => this.request(() => values.delete(key)),
+          getAllKeys: () => this.request(() => [...values.keys()]),
+        }),
+      }
+      setTimeout(() => transaction.oncomplete?.(), 0)
+      return transaction
+    }
+
+    request(read) {
+      const request = {}
+      queueMicrotask(() => {
+        request.result = read()
+        request.onsuccess?.()
+      })
+      return request
+    }
+  }
+
+  globalThis.indexedDB = {
+    open(name) {
+      const request = {}
+      queueMicrotask(() => {
+        let database = databases.get(name)
+        const isNew = !database
+        if (!database) {
+          database = new FakeDatabase(name)
+          databases.set(name, database)
+        }
+        request.result = database
+        if (isNew) request.onupgradeneeded?.()
+        request.onsuccess?.()
+      })
+      return request
+    },
+  }
+  t.after(() => {
+    if (originalIndexedDB === undefined) delete globalThis.indexedDB
+    else globalThis.indexedDB = originalIndexedDB
+  })
+
+  const material = await createConversationKeyMaterial('original secure pin')
+  const changedEnvelope = await rewrapConversationPrivateKeyEnvelope(
+    material.privateKeyEnvelope,
+    'original secure pin',
+    'replacement secure pin'
+  )
+  const changedKey = await unlockConversationPrivateKey(changedEnvelope, 'replacement secure pin')
+  const [copy] = await encryptMessageCopies('key survives a PIN change', [
+    { userId: 'cache-owner', publicKey: material.publicKey },
+  ])
+  assert.equal(await decryptMessageCopy(copy, changedKey), 'key survives a PIN change')
+  await assert.rejects(
+    rewrapConversationPrivateKeyEnvelope(material.privateKeyEnvelope, 'incorrect pin', 'another new pin'),
+    /PIN is incorrect/
+  )
+
+  await cacheConversationPrivateKey('cache-owner', 'peer-one', material.privateKey)
+  await cacheConversationPrivateKey('cache-owner', 'peer-two', material.privateKey)
+  await cacheConversationPrivateKey('other-owner', 'peer-one', material.privateKey)
+  const cachedKey = await getCachedConversationPrivateKey('cache-owner', 'peer-one')
+  assert.equal(cachedKey.extractable, false)
+  assert.equal(await decryptMessageCopy(copy, cachedKey), 'key survives a PIN change')
+  await deleteCachedConversationPrivateKey('cache-owner', 'peer-one')
+  assert.equal(await getCachedConversationPrivateKey('cache-owner', 'peer-one'), null)
+  await clearCachedConversationPrivateKeys('cache-owner')
+  assert.equal(await getCachedConversationPrivateKey('cache-owner', 'peer-two'), null)
+  assert.ok(await getCachedConversationPrivateKey('other-owner', 'peer-one'))
 })
 
 test('message serialization isolates protected copies and redacts protected plaintext', () => {
@@ -119,6 +218,135 @@ test('conversation protection API rejects unauthenticated requests', async () =>
   }
 })
 
+test('protection toggle changes only the owner setting and requires completed PIN setup', async (t) => {
+  process.env.JWT_SECRET = 'conversation-toggle-test-secret'
+  const originalUpdateOne = UserModel.updateOne
+  const updates = []
+  UserModel.updateOne = async (filter, update) => {
+    updates.push({ filter, update })
+    return { matchedCount: filter.userId === 'toggle-owner' ? 1 : 0 }
+  }
+  t.after(() => {
+    UserModel.updateOne = originalUpdateOne
+  })
+
+  const app = express()
+  app.use(express.json())
+  app.use('/conversation-api', conversationProtectionRoute)
+  const server = app.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const baseUrl = `http://127.0.0.1:${server.address().port}/conversation-api/toggle-peer/protection/enabled`
+  const authorization = `Bearer ${jwt.sign({ userId: 'toggle-owner' }, process.env.JWT_SECRET)}`
+
+  try {
+    for (const enabled of [true, false, true, false]) {
+      const response = await fetch(baseUrl, {
+        method: 'PATCH',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      assert.equal(response.status, 200)
+      assert.deepEqual((await response.json()).enabled, enabled)
+    }
+    assert.equal(updates.length, 4)
+    for (const { filter, update } of updates) {
+      assert.equal(filter.userId, 'toggle-owner')
+      assert.deepEqual(filter.protectedConversations, {
+        $elemMatch: { otherUserId: 'toggle-peer', status: 'protected' },
+      })
+      assert.deepEqual(Object.keys(update.$set), ['protectedConversations.$.protectionEnabled'])
+    }
+
+    const invalid = await fetch(baseUrl, {
+      method: 'PATCH',
+      headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: 'false' }),
+    })
+    assert.equal(invalid.status, 400)
+
+    const incomplete = await fetch(baseUrl, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${jwt.sign({ userId: 'incomplete-owner' }, process.env.JWT_SECRET)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ enabled: true }),
+    })
+    assert.equal(incomplete.status, 409)
+  } finally {
+    server.close()
+    await once(server, 'close')
+  }
+})
+
+test('protection settings treat legacy configurations as ON and expose only the peer public setting', async (t) => {
+  process.env.JWT_SECRET = 'conversation-settings-test-secret'
+  const originalFindOne = UserModel.findOne
+  const privateKeyEnvelope = { ciphertext: 'owner-private-key-envelope' }
+  const users = new Map([
+    [
+      'settings-owner',
+      {
+        userId: 'settings-owner',
+        protectedConversations: [
+          { otherUserId: 'settings-peer', status: 'protected', publicKey: 'owner-public-key', privateKeyEnvelope },
+        ],
+      },
+    ],
+    [
+      'settings-peer',
+      {
+        userId: 'settings-peer',
+        protectedConversations: [
+          {
+            otherUserId: 'settings-owner',
+            status: 'protected',
+            protectionEnabled: false,
+            publicKey: 'peer-public-key',
+            privateKeyEnvelope: { ciphertext: 'peer-private-key-envelope' },
+          },
+        ],
+      },
+    ],
+  ])
+  UserModel.findOne = (filter) => ({
+    select() {
+      return this
+    },
+    lean() {
+      return Promise.resolve(users.get(filter.userId) || null)
+    },
+  })
+  t.after(() => {
+    UserModel.findOne = originalFindOne
+  })
+
+  const app = express()
+  app.use('/conversation-api', conversationProtectionRoute)
+  const server = app.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/conversation-api/settings-peer/protection`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt.sign({ userId: 'settings-owner' }, process.env.JWT_SECRET)}`,
+        },
+      }
+    )
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.own.enabled, true)
+    assert.equal(body.own.privateKeyEnvelope.ciphertext, 'owner-private-key-envelope')
+    assert.deepEqual(body.peer, { status: 'protected', publicKey: 'peer-public-key' })
+    assert.equal(JSON.stringify(body).includes('peer-private-key-envelope'), false)
+  } finally {
+    server.close()
+    await once(server, 'close')
+  }
+})
+
 test('history migration remains incomplete until every message has an encrypted copy', async (t) => {
   process.env.JWT_SECRET = 'conversation-migration-test-secret'
   const originalFindOne = UserModel.findOne
@@ -129,7 +357,9 @@ test('history migration remains incomplete until every message has an encrypted 
   const messageId = new mongoose.Types.ObjectId()
   const owner = {
     userId: 'migration-owner',
-    protectedConversations: [{ otherUserId: 'migration-peer', status: 'migrating' }],
+    protectedConversations: [
+      { otherUserId: 'migration-peer', status: 'migrating', protectionEnabled: false },
+    ],
   }
   let missingCopies = 1
   let savedBatch = null
@@ -224,6 +454,7 @@ test('history migration remains incomplete until every message has an encrypted 
     })
     assert.equal(completedResponse.status, 200)
     assert.equal(owner.protectedConversations[0].status, 'protected')
+    assert.equal(owner.protectedConversations[0].protectionEnabled, false)
   } finally {
     server.close()
     await once(server, 'close')

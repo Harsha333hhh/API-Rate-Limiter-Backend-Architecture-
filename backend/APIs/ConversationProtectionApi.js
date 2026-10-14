@@ -99,6 +99,7 @@ conversationProtectionRoute.get('/:otherUserId/protection', authMiddleware, asyn
       own: ownSetting
         ? {
             status: ownSetting.status,
+            enabled: ownSetting.protectionEnabled !== false,
             publicKey: ownSetting.publicKey,
             privateKeyEnvelope: ownSetting.privateKeyEnvelope,
           }
@@ -137,6 +138,7 @@ conversationProtectionRoute.post('/:otherUserId/protection', authMiddleware, asy
           protectedConversations: {
             otherUserId,
             status: 'migrating',
+            protectionEnabled: false,
             publicKey,
             privateKeyEnvelope,
           },
@@ -151,6 +153,34 @@ conversationProtectionRoute.post('/:otherUserId/protection', authMiddleware, asy
     res.status(202).json({ message: 'Conversation history migration started', status: 'migrating' })
   } catch (error) {
     res.status(500).json({ message: 'Could not start conversation protection' })
+  }
+})
+
+conversationProtectionRoute.patch('/:otherUserId/protection/enabled', authMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.user
+    const { otherUserId } = req.params
+    const { enabled } = req.body || {}
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: 'Protection enabled must be a boolean' })
+    }
+
+    const updated = await UserModel.updateOne(
+      {
+        userId,
+        protectedConversations: {
+          $elemMatch: { otherUserId, status: 'protected' },
+        },
+      },
+      { $set: { 'protectedConversations.$.protectionEnabled': enabled } },
+      { runValidators: true }
+    )
+    if (updated.matchedCount !== 1) {
+      return res.status(409).json({ message: 'Complete PIN setup before changing chat protection' })
+    }
+    res.status(200).json({ message: 'Chat protection setting updated', enabled })
+  } catch (error) {
+    res.status(500).json({ message: 'Could not update chat protection setting' })
   }
 })
 
