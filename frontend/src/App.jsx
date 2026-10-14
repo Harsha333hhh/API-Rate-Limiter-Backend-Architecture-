@@ -6,6 +6,8 @@ import Landing from './pages/Landing.jsx'
 import Signup from './pages/Signup.jsx'
 import Messenger from './pages/Messenger.jsx'
 import About from './pages/About.jsx'
+import RateLimitDashboard from './pages/RateLimitDashboard.jsx'
+import ServerHealth from './pages/ServerHealth.jsx'
 
 function Protected({ children }) {
   const { user, loading } = useAuth()
@@ -38,6 +40,8 @@ export default function App() {
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/signup" element={user ? <Navigate to="/" replace /> : <Signup />} />
         <Route path="/about" element={<About />} />
+        <Route path="/rate-limit-dashboard" element={<Protected><RateLimitDashboard /></Protected>} />
+        <Route path="/server-health" element={<Protected><ServerHealth /></Protected>} />
         <Route path="/" element={<HomeRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

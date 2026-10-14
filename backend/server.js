@@ -6,6 +6,9 @@ import cors from 'cors'
 import { connect } from 'mongoose'
 import { userRoute } from './APIs/UsersApi.js'
 import { messageRoute } from './APIs/MessagesApi.js'
+import { monitoringRoute } from './APIs/MonitoringApi.js'
+import { conversationProtectionRoute } from './APIs/ConversationProtectionApi.js'
+import { serverHealthMiddleware } from './services/serverHealth.js'
 
 dotenv.config()
 
@@ -26,10 +29,13 @@ app.set('trust proxy', 1)
 app.use(cors({ origin: allowedOrigins, credentials: true }))
 app.use(express.json()) // body parser
 app.use(cookieParser())
+app.use(serverHealthMiddleware)
 
 // forward req to specific APIs
 app.use('/user-api', userRoute)
 app.use('/message-api', messageRoute)
+app.use('/monitoring-api', monitoringRoute)
+app.use('/conversation-api', conversationProtectionRoute)
 
 // dealing with invalid path
 app.use((req, res, next) => {

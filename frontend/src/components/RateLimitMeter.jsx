@@ -1,4 +1,4 @@
-export default function RateLimitMeter({ rl, blocked, retryAfter }) {
+export default function RateLimitMeter({ rl, blocked, retryAfter, explanation }) {
   const limit = Number(rl?.limit) || 0
   const remaining = Number(rl?.remaining) || 0
   const used = Math.max(0, limit - remaining)
@@ -8,7 +8,7 @@ export default function RateLimitMeter({ rl, blocked, retryAfter }) {
   return (
     <div className="surface-card card p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="label">Rate limit · per pair</span>
+        <span className="label">Message rate limit</span>
         {rl?.algorithm ? <span className="pill-primary">{rl.algorithm}</span> : <span className="pill">waiting</span>}
       </div>
 
@@ -39,6 +39,11 @@ export default function RateLimitMeter({ rl, blocked, retryAfter }) {
           <span className="text-muted">{hasLiveData ? `${used} used` : 'Ready'}</span>
         )}
       </div>
+      {explanation && (
+        <p className="mt-3 text-xs leading-5 text-danger" role="status">
+          {explanation}
+        </p>
+      )}
     </div>
   )
 }

@@ -14,6 +14,23 @@ function generateShortId() {
   return id
 }
 
+const protectedConversationSchema = new mongoose.Schema(
+  {
+    otherUserId: { type: String, required: true },
+    status: { type: String, enum: ['migrating', 'protected'], required: true },
+    publicKey: { type: String, required: true },
+    privateKeyEnvelope: {
+      version: { type: Number, required: true },
+      kdf: { type: String, required: true },
+      iterations: { type: Number, required: true },
+      salt: { type: String, required: true },
+      iv: { type: String, required: true },
+      ciphertext: { type: String, required: true },
+    },
+  },
+  { _id: false }
+)
+
 // define the user schema
 const userSchema = new mongoose.Schema(
   {
@@ -27,6 +44,10 @@ const userSchema = new mongoose.Schema(
     isDeleted: { type: Boolean, default: false },
     // list of userIds this user has blocked (prevents them from delivering messages to the blocker)
     blocked: { type: [String], default: [] },
+    // Only public keys and PIN-encrypted private-key envelopes are stored here.
+    protectedConversations: { type: [protectedConversationSchema], default: [] },
+    // Writes in message transactions serialize against protection-state changes.
+    protectionRevision: { type: Number, default: 0 },
   },
   { timestamps: true }
 )

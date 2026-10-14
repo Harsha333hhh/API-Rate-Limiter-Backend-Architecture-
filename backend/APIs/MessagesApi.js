@@ -3,13 +3,61 @@
 //   - per USER  : one user can't flood the whole system
 //   - per PAIR  : one user can't spam a SPECIFIC person (anti-harassment)
 import express from 'express'
+import mongoose from 'mongoose'
 import { MessageModel } from '../Models/MessageModel.js'
 import { UserModel } from '../Models/UserModel.js'
 import { authMiddleware } from '../Middlewares/authMiddleware.js'
 import { rateLimiter } from '../RateLimiter/rateLimiter.js'
+import { recordSavedMessage } from '../services/rateLimitMonitoring.js'
+import {
+  buildUnreadMessagesPipeline,
+  summarizeUnreadMessages,
+} from '../services/unreadMessageSummary.js'
 
 // create and export message router
 export const messageRoute = express.Router()
+
+function getConversationProtection(user, otherUserId) {
+  return user?.protectedConversations?.find((setting) => setting.otherUserId === otherUserId)
+}
+
+function validProtectedCopy(copy) {
+  return (
+    copy &&
+    copy.version === 1 &&
+    typeof copy.iv === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(copy.iv) &&
+    typeof copy.ciphertext === 'string' &&
+    /^[A-Za-z0-9_-]{1,32768}$/.test(copy.ciphertext) &&
+    typeof copy.wrappedKey === 'string' &&
+    /^[A-Za-z0-9_-]{300,2048}$/.test(copy.wrappedKey)
+  )
+}
+
+export function messageForUser(message, userId, protectedSetting) {
+  const result = message.toObject ? message.toObject() : { ...message }
+  if (protectedSetting?.status === 'migrating') {
+    delete result.protectedCopies
+    return { ...result, text: '[Conversation protection migration pending]' }
+  }
+  if (protectedSetting?.status === 'protected') {
+    const copy = result.protectedCopies?.find((entry) => entry.userId === userId)
+    if (!copy) {
+      delete result.text
+      delete result.protectedCopies
+      return { ...result, text: '[Protected message copy unavailable]' }
+    }
+    delete result.text
+    result.protectedCopy = {
+      version: copy.version,
+      iv: copy.iv,
+      ciphertext: copy.ciphertext,
+      wrappedKey: copy.wrappedKey,
+    }
+  }
+  delete result.protectedCopies
+  return result
+}
 
 // POST /messages - Send a direct message to a user by their friendly userId (PROTECTED)
 //
@@ -31,44 +79,152 @@ messageRoute.post(
     try {
       // sender is the logged-in user; receiver comes from the request body
       const senderId = req.user.userId
-      const { receiverId, text } = req.body
+      const { receiverId, text, protectedCopies = [] } = req.body
 
-      // validation
-      if (!receiverId || !text || !text.trim()) {
-        return res.status(400).json({ message: 'receiverId and text are required' })
+      if (!receiverId || receiverId === senderId) {
+        return res.status(400).json({ message: 'A different receiverId is required' })
       }
 
-      // can't message yourself
-      if (receiverId === senderId) {
-        return res.status(400).json({ message: 'You cannot message yourself' })
+      if (
+        !Array.isArray(protectedCopies) ||
+        protectedCopies.length > 2 ||
+        protectedCopies.some(
+          (entry) =>
+            !entry ||
+            typeof entry.userId !== 'string' ||
+            !validProtectedCopy(entry)
+        ) ||
+        new Set(protectedCopies.map((entry) => entry.userId)).size !== protectedCopies.length
+      ) {
+        return res.status(400).json({ message: 'Invalid protected message copy' })
       }
 
-      // make sure the receiver actually exists
-      const receiver = await UserModel.findOne({ userId: receiverId })
-      if (!receiver) {
-        return res.status(404).json({ message: 'No user with that ID' })
-      }
+      const supportsTransactions = ['ReplicaSetWithPrimary', 'Sharded'].includes(
+        mongoose.connection.client?.topology?.description?.type
+      )
+      const executeSend = async (session) => {
+        if (session) {
+          for (const participantId of [senderId, receiverId].sort()) {
+            const result = await UserModel.updateOne(
+              { userId: participantId },
+              { $inc: { protectionRevision: 1 } },
+              { session }
+            )
+            if (result.matchedCount !== 1) {
+              const missingUser = new Error(participantId === receiverId ? 'No user with that ID' : 'Sender account was not found')
+              missingUser.status = participantId === receiverId ? 404 : 401
+              throw missingUser
+            }
+          }
+        }
 
-      // If the receiver has blocked the sender, pretend the send succeeded but do not persist the message.
-      if (Array.isArray(receiver.blocked) && receiver.blocked.includes(senderId)) {
-        const fakeMessage = {
-          _id: null,
+        const [sender, receiver] = await Promise.all([
+          UserModel.findOne({ userId: senderId })
+            .select('protectedConversations')
+            .session(session)
+            .lean(),
+          UserModel.findOne({ userId: receiverId })
+            .select('blocked protectedConversations')
+            .session(session)
+            .lean(),
+        ])
+        if (!receiver) {
+          const missingUser = new Error('No user with that ID')
+          missingUser.status = 404
+          throw missingUser
+        }
+
+        const senderProtection = getConversationProtection(sender, receiverId)
+        const receiverProtection = getConversationProtection(receiver, senderId)
+        const expectedProtectedUsers = [
+          ...(senderProtection ? [senderId] : []),
+          ...(receiverProtection ? [receiverId] : []),
+        ]
+        const providedProtectedUsers = protectedCopies.map((entry) => entry.userId)
+        if (
+          expectedProtectedUsers.some((protectedUserId) => !providedProtectedUsers.includes(protectedUserId)) ||
+          providedProtectedUsers.some((protectedUserId) => !expectedProtectedUsers.includes(protectedUserId))
+        ) {
+          const staleProtection = new Error('Conversation protection settings changed; refresh the conversation and retry')
+          staleProtection.status = 409
+          throw staleProtection
+        }
+        if (expectedProtectedUsers.length < 2 && (typeof text !== 'string' || !text.trim())) {
+          const missingText = new Error('Message text is required for an unprotected conversation copy')
+          missingText.status = 400
+          throw missingText
+        }
+        if (expectedProtectedUsers.length === 2 && text !== undefined) {
+          const plaintextRejected = new Error('Plaintext is not accepted when both conversation copies are protected')
+          plaintextRejected.status = 400
+          throw plaintextRejected
+        }
+
+        if (Array.isArray(receiver.blocked) && receiver.blocked.includes(senderId)) {
+          return {
+            senderProtection,
+            fakeMessage: {
+              _id: null,
+              senderId,
+              receiverId,
+              text,
+              read: false,
+              createdAt: new Date(),
+              protectedCopies: protectedCopies.map(({ userId, ...copy }) => ({ userId, ...copy })),
+            },
+          }
+        }
+
+        const message = new MessageModel({
           senderId,
           receiverId,
-          text,
-          read: false,
-          createdAt: new Date(),
-        }
-        return res.status(201).json({ message: 'Message sent', payload: fakeMessage })
+          ...(expectedProtectedUsers.length === 2 ? {} : { text }),
+          protectedCopies: protectedCopies.map(({ userId, ...copy }) => ({ userId, ...copy })),
+        })
+        const savedMessage = await message.save(session ? { session } : undefined)
+        return { senderProtection, savedMessage }
       }
 
-      // create and save the message
-      const message = new MessageModel({ senderId, receiverId, text })
-      const savedMessage = await message.save()
+      let sendResult
+      if (supportsTransactions) {
+        const session = await mongoose.startSession()
+        try {
+          await session.withTransaction(async () => {
+            sendResult = await executeSend(session)
+          })
+        } finally {
+          await session.endSession()
+        }
+      } else {
+        const [sender, receiver] = await Promise.all([
+          UserModel.findOne({ userId: senderId }).select('protectedConversations').lean(),
+          UserModel.findOne({ userId: receiverId }).select('blocked protectedConversations').lean(),
+        ])
+        if (
+          getConversationProtection(sender, receiverId) ||
+          getConversationProtection(receiver, senderId)
+        ) {
+          return res.status(503).json({
+            message: 'Protected conversation messaging requires MongoDB transaction support',
+          })
+        }
+        sendResult = await executeSend(null)
+      }
 
-      res.status(201).json({ message: 'Message sent', payload: savedMessage })
+      if (sendResult.fakeMessage) {
+        return res.status(201).json({
+          message: 'Message sent',
+          payload: messageForUser(sendResult.fakeMessage, senderId, sendResult.senderProtection),
+        })
+      }
+
+      recordSavedMessage(senderId, receiverId)
+      res.status(201).json({
+        message: 'Message sent',
+        payload: messageForUser(sendResult.savedMessage, senderId, sendResult.senderProtection),
+      })
     } catch (err) {
-      res.status(500).json({ message: 'error', reason: err.message })
+      res.status(err.status || 500).json({ message: err.status ? err.message : 'error' })
     }
   }
 )
@@ -111,6 +267,31 @@ messageRoute.get(
     try {
       const me = req.user.userId
       const other = req.params.otherUserId
+      const owner = await UserModel.findOne({ userId: me }).select('protectedConversations').lean()
+      const ownProtection = getConversationProtection(owner, other)
+      if (ownProtection?.status === 'migrating') {
+        return res.status(409).json({
+          code: 'PROTECTION_MIGRATION_PENDING',
+          message: 'Unlock protection and finish migrating this conversation history',
+        })
+      }
+      if (ownProtection?.status === 'protected') {
+        const missingCopies = await MessageModel.countDocuments({
+          $or: [
+            { senderId: me, receiverId: other },
+            { senderId: other, receiverId: me },
+          ],
+          hiddenFor: { $ne: me },
+          $nor: [{ protectedCopies: { $elemMatch: { userId: me } } }],
+        })
+        if (missingCopies > 0) {
+          return res.status(409).json({
+            code: 'PROTECTION_SYNC_REQUIRED',
+            message: 'Some messages need protected copies before this conversation can be shown',
+            missingMessages: missingCopies,
+          })
+        }
+      }
 
       // find messages in either direction between the two users
       const messages = await MessageModel.find({
@@ -121,7 +302,10 @@ messageRoute.get(
         hiddenFor: { $ne: me },
       }).sort({ createdAt: 1 }) // oldest first
 
-      res.status(200).json({ message: 'Conversation retrieved', payload: messages })
+      res.status(200).json({
+        message: 'Conversation retrieved',
+        payload: messages.map((message) => messageForUser(message, me, ownProtection)),
+      })
     } catch (err) {
       res.status(500).json({ message: 'error', reason: err.message })
     }
@@ -164,39 +348,30 @@ messageRoute.get(
     try {
       const me = req.user.userId
 
-      const unreadMessages = await MessageModel.find({ receiverId: me, read: false, hiddenFor: { $ne: me } })
-        .sort({ createdAt: -1 })
-        .limit(10)
-
-      const counts = {}
-      const senderIds = new Set()
-      for (const message of unreadMessages) {
-        counts[message.senderId] = (counts[message.senderId] || 0) + 1
-        senderIds.add(message.senderId)
-      }
-
-      const allUnread = await MessageModel.find({ receiverId: me, read: false, hiddenFor: { $ne: me } }).select('senderId')
-      const total = allUnread.length
-      const groupedCounts = {}
-      for (const message of allUnread) {
-        groupedCounts[message.senderId] = (groupedCounts[message.senderId] || 0) + 1
-      }
+      const [unreadAggregate] = await MessageModel.aggregate(buildUnreadMessagesPipeline(me))
+      const { counts, total, recent: unreadMessages } = summarizeUnreadMessages(unreadAggregate)
+      const senderIds = new Set(unreadMessages.map((message) => message.senderId))
+      const owner = await UserModel.findOne({ userId: me }).select('protectedConversations').lean()
 
       const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name isDeleted')
       const senderMap = new Map(senders.map((sender) => [sender.userId, sender.isDeleted ? 'Deleted user' : sender.name]))
 
-      const recent = unreadMessages.map((message) => ({
-        _id: message._id,
-        senderId: message.senderId,
-        senderName: senderMap.get(message.senderId) || 'Unknown',
-        receiverId: message.receiverId,
-        text: message.text,
-        createdAt: message.createdAt,
-      }))
+      const recent = unreadMessages.map((message) => {
+        const protection = getConversationProtection(owner, message.senderId)
+        const safeMessage = messageForUser(message, me, protection)
+        return {
+          _id: safeMessage._id,
+          senderId: safeMessage.senderId,
+          senderName: senderMap.get(safeMessage.senderId) || 'Unknown',
+          receiverId: safeMessage.receiverId,
+          text: safeMessage.text || '[Protected message]',
+          createdAt: safeMessage.createdAt,
+        }
+      })
 
       res.status(200).json({
         message: 'Unread counts retrieved',
-        payload: { counts: groupedCounts, total, recent },
+        payload: { counts, total, recent },
       })
     } catch (err) {
       res.status(500).json({ message: 'error', reason: err.message })
@@ -219,6 +394,7 @@ messageRoute.get(
         $or: [{ senderId: me }, { receiverId: me }],
         hiddenFor: { $ne: me },
       }).sort({ createdAt: -1 })
+      const owner = await UserModel.findOne({ userId: me }).select('protectedConversations').lean()
 
       // collect the unique "other" userIds, newest first
       const seen = new Set()
@@ -227,7 +403,13 @@ messageRoute.get(
         const other = m.senderId === me ? m.receiverId : m.senderId
         if (!seen.has(other)) {
           seen.add(other)
-          others.push({ userId: other, lastMessage: m.text, lastAt: m.createdAt })
+          const protection = getConversationProtection(owner, other)
+          const safeMessage = messageForUser(m, me, protection)
+          others.push({
+            userId: other,
+            lastMessage: safeMessage.text || '[Protected message]',
+            lastAt: m.createdAt,
+          })
         }
       }
 
