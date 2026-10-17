@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Avatar from './Avatar.jsx'
+import GoogleSignInButton from './GoogleSignInButton.jsx'
 import { api } from '../lib/api.js'
 
 export default function ProfileModal({
@@ -10,6 +11,7 @@ export default function ProfileModal({
   isSaving,
   onDeleteAccount,
   onPictureChanged,
+  onLinkGoogle,
 }) {
   const [name, setName] = useState(user?.name || '')
   const [error, setError] = useState('')
@@ -119,7 +121,7 @@ export default function ProfileModal({
 
   return (
     <div className="fixed inset-0 bg-slate-950/35 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-      <div className="card surface-card w-full max-w-md p-6 slide-down">
+      <div className="card surface-card w-full max-w-md max-h-[90vh] overflow-y-auto p-6 slide-down">
         <h2 className="font-display text-2xl text-text mb-4">Edit profile</h2>
 
         <div className="space-y-4">
@@ -176,6 +178,24 @@ export default function ProfileModal({
               )}
             </div>
             <p className="text-xs text-muted">JPEG, PNG, or WebP; maximum 2 MB.</p>
+          </div>
+
+          <div className="space-y-2 border-t border-line pt-4">
+            <label className="label block">Google account</label>
+            {user?.googleLinked ? (
+              <p className="text-sm text-text-secondary">Google is linked to this account.</p>
+            ) : (
+              <>
+                <p className="text-sm text-text-secondary">
+                  Link Google using the same email as this Whisper account.
+                </p>
+                <GoogleSignInButton
+                  onCredential={onLinkGoogle}
+                  onError={setError}
+                  disabled={pictureBusy || isSaving}
+                />
+              </>
+            )}
           </div>
 
           <div>

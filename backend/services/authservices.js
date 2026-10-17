@@ -20,6 +20,10 @@ export async function authenticate(userCred) {
     throw new Error('Invalid credentials')
   }
 
+  if (!user.password) {
+    throw new Error('Invalid credentials')
+  }
+
   // compare the given password against the stored hash
   const isMatch = await bcrypt.compare(password, user.password)
   if (!isMatch) {
@@ -42,6 +46,7 @@ export async function authenticate(userCred) {
       email: user.email,
       role: user.role,
       profilePictureId: user.profilePictureId?.toString() || null,
+      googleLinked: Boolean(user.googleSub),
     },
   }
 }

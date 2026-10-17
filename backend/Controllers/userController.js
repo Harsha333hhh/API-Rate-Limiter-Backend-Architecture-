@@ -38,5 +38,6 @@ export async function register(data) {
     email: savedUser.email,
     role: savedUser.role,
     profilePictureId: savedUser.profilePictureId?.toString() || null,
+    googleLinked: false,
   }
 }

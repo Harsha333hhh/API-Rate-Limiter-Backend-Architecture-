@@ -2,14 +2,21 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 import { readRateLimitHeaders } from '../lib/api.js'
+import GoogleSignInButton from '../components/GoogleSignInButton.jsx'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, googleLogin } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const handleGoogleCredential = async (credential, nonce) => {
+    setErr('')
+    await googleLogin(credential, nonce)
+    navigate('/')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -83,6 +90,17 @@ export default function Login() {
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          <div className="my-5 flex items-center gap-3 text-xs font-medium uppercase tracking-wider text-muted">
+            <span className="h-px flex-1 bg-line" />
+            <span>Or</span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
+          <GoogleSignInButton
+            onCredential={handleGoogleCredential}
+            onError={setErr}
+            disabled={loading}
+          />
 
           <div className="mt-6 pt-6 border-t border-line text-center text-sm text-text-secondary">
             New here?{' '}

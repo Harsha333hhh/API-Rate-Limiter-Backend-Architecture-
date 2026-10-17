@@ -35,13 +35,25 @@ export function AuthProvider({ children }) {
     return login(email, password)
   }
 
+  const googleLogin = async (credential, nonce) => {
+    const { data } = await api.post('/user-api/google', { credential, nonce })
+    setUser(data.user)
+    return data
+  }
+
+  const linkGoogle = async (credential, nonce) => {
+    const { data } = await api.post('/user-api/google/link', { credential, nonce })
+    setUser(data.user)
+    return data
+  }
+
   const logout = async () => {
     await api.post('/user-api/logout')
     setUser(null)
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, googleLogin, linkGoogle, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

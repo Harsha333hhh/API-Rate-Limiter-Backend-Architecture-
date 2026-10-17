@@ -5,14 +5,37 @@ import express from 'express'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import mongoose from 'mongoose'
+import jwt from 'jsonwebtoken'
 import { register } from '../Controllers/userController.js'
 import { authenticate } from '../services/authservices.js'
+import { GoogleIdentityError, verifyGoogleIdentityToken } from '../services/googleIdentity.js'
 import { UserModel } from '../Models/UserModel.js'
 import { authMiddleware } from '../Middlewares/authMiddleware.js'
 import { rateLimiter } from '../RateLimiter/rateLimiter.js'
 
 // create and export user router
 export const userRoute = express.Router()
+
+function createSessionToken(user) {
+  return jwt.sign(
+    { userId: user.userId, role: user.role },
+    process.env.JWT_SECRET || 'dev_secret',
+    { expiresIn: '7d' }
+  )
+}
+
+function setSessionCookie(res, token) {
+  res.cookie('token', token, { httpOnly: true, sameSite: 'none', secure: true })
+}
+
+function toSafeUser(user) {
+  const safeUser = user.toObject ? user.toObject() : { ...user }
+  delete safeUser.password
+  delete safeUser.googleSub
+  safeUser.googleLinked = Boolean(user.googleSub)
+  safeUser.profilePictureId = user.profilePictureId?.toString() || null
+  return safeUser
+}
 
 const MAX_PROFILE_PICTURE_BYTES = 2 * 1024 * 1024
 const PROFILE_PICTURE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -198,6 +221,131 @@ userRoute.post(
   }
 )
 
+// Google Identity Services sends an ID token; its signature and claims are verified server-side.
+userRoute.post(
+  '/google',
+  rateLimiter({ algorithm: 'fixed-window', limit: 5, windowMs: 60 * 1000, by: 'ip' }),
+  async (req, res) => {
+    let identity
+    try {
+      identity = await verifyGoogleIdentityToken(req.body?.credential, req.body?.nonce)
+      let user = await UserModel.findOne({ googleSub: identity.sub })
+
+      if (!user) {
+        const emailAccount = await UserModel.findOne({ email: identity.email })
+        if (emailAccount) {
+          return res.status(409).json({
+            code: 'ACCOUNT_LINK_REQUIRED',
+            message: 'An account already uses this email. Sign in to it and link Google from your profile.',
+          })
+        }
+
+        user = await new UserModel({
+          name: identity.name,
+          email: identity.email,
+          googleSub: identity.sub,
+          role: 'user',
+        }).save()
+      }
+
+      if (user.isDeleted) {
+        return res.status(403).json({ message: 'This account is no longer available' })
+      }
+
+      const token = createSessionToken(user)
+      setSessionCookie(res, token)
+      return res.status(200).json({
+        message: 'Google sign-in successful',
+        token,
+        user: {
+          userId: user.userId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          profilePictureId: user.profilePictureId?.toString() || null,
+          googleLinked: true,
+        },
+      })
+    } catch (error) {
+      if (error instanceof GoogleIdentityError) {
+        return res.status(error.status).json({ message: error.message })
+      }
+      if (error.code === 11000) {
+        const linkedUser = identity && await UserModel.findOne({ googleSub: identity.sub })
+        if (linkedUser && !linkedUser.isDeleted) {
+          const token = createSessionToken(linkedUser)
+          setSessionCookie(res, token)
+          return res.status(200).json({
+            message: 'Google sign-in successful',
+            token,
+            user: {
+              userId: linkedUser.userId,
+              name: linkedUser.name,
+              email: linkedUser.email,
+              role: linkedUser.role,
+              profilePictureId: linkedUser.profilePictureId?.toString() || null,
+              googleLinked: true,
+            },
+          })
+        }
+        return res.status(409).json({ message: 'This Google account is already linked to another account' })
+      }
+      console.error('Google sign-in failed:', error.message)
+      return res.status(500).json({ message: 'Could not sign in with Google' })
+    }
+  }
+)
+
+userRoute.post(
+  '/google/link',
+  authMiddleware,
+  rateLimiter({ algorithm: 'fixed-window', limit: 5, windowMs: 60 * 1000, by: 'user' }),
+  async (req, res) => {
+    try {
+      const identity = await verifyGoogleIdentityToken(req.body?.credential, req.body?.nonce)
+      const user = await UserModel.findOne({ userId: req.user.userId })
+      if (!user || user.isDeleted) {
+        return res.status(404).json({ message: 'User not found' })
+      }
+      if (user.email.toLowerCase() !== identity.email) {
+        return res.status(403).json({ message: 'Sign in to Google with the same email as this Whisper account' })
+      }
+
+      const linkedAccount = await UserModel.findOne({ googleSub: identity.sub })
+      if (linkedAccount && linkedAccount.userId !== user.userId) {
+        return res.status(409).json({ message: 'This Google account is already linked to another Whisper account' })
+      }
+
+      const updatedUser = await UserModel.findOneAndUpdate(
+        {
+          userId: user.userId,
+          email: user.email,
+          $or: [{ googleSub: { $exists: false } }, { googleSub: null }, { googleSub: identity.sub }],
+        },
+        { $set: { googleSub: identity.sub } },
+        { new: true }
+      ).select('-password')
+      if (!updatedUser) {
+        return res.status(409).json({ message: 'Account changed while linking Google; please retry' })
+      }
+
+      return res.status(200).json({
+        message: 'Google account linked',
+        user: toSafeUser(updatedUser),
+      })
+    } catch (error) {
+      if (error instanceof GoogleIdentityError) {
+        return res.status(error.status).json({ message: error.message })
+      }
+      if (error.code === 11000) {
+        return res.status(409).json({ message: 'This Google account is already linked to another Whisper account' })
+      }
+      console.error('Google account linking failed:', error.message)
+      return res.status(500).json({ message: 'Could not link Google account' })
+    }
+  }
+)
+
 // Profile picture writes have an independent quota and do not consume existing user API limits.
 userRoute.post(
   '/me/profile-picture',
@@ -350,7 +498,7 @@ userRoute.get('/me', authMiddleware, async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' })
     }
-    res.status(200).json({ message: 'User found', user })
+    res.status(200).json({ message: 'User found', user: toSafeUser(user) })
   } catch (err) {
     res.status(500).json({ message: 'error', reason: err.message })
   }
@@ -377,7 +525,7 @@ userRoute.patch(
       if (!user) {
         return res.status(404).json({ message: 'User not found' })
       }
-      res.status(200).json({ message: 'User updated', user })
+      res.status(200).json({ message: 'User updated', user: toSafeUser(user) })
     } catch (err) {
       res.status(500).json({ message: 'error', reason: err.message })
     }

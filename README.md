@@ -62,6 +62,8 @@ A plain `Map` with a periodic cleanup that drops expired entries so it doesn't g
 |---|---|---|---|
 | `POST /user-api/users` (signup) | 5 / 10 min | fixed window | ip |
 | `POST /user-api/login` | 5 / min | fixed window | ip |
+| `POST /user-api/google` (Google sign-in) | 5 / min | fixed window | ip |
+| `POST /user-api/google/link` (link Google account) | 5 / min | fixed window | user |
 | `PATCH /user-api/me` (profile edit) | 10 / min | sliding window | user |
 | `DELETE /user-api/me` (account delete) | 10 / min | sliding window | user |
 | `POST /user-api/block/:userId` and `/unblock/:userId` | 5 / 15 sec | sliding window | user |
@@ -76,6 +78,17 @@ A plain `Map` with a periodic cleanup that drops expired entries so it doesn't g
 | `GET /message-api/conversations` | 200 / min | sliding window | user |
 
 The send route stacks **three** limiters; all must pass. Token bucket is implemented but is not currently configured on a route.
+
+### Google sign-in setup
+
+Google sign-in uses Google Identity Services in the browser and verifies the returned OpenID Connect ID token's signature, issuer, audience, expiry, verified email, and nonce on the backend. The backend fetches Google's public signing keys and caches them according to Google's cache headers. No OAuth client secret is used or exposed.
+
+1. In Google Cloud Console, create a Web application OAuth client and configure the deployed frontend origins as authorized JavaScript origins. The popup flow does not need a redirect URI.
+2. Set `GOOGLE_CLIENT_ID` in the backend environment and the same public client ID as `VITE_GOOGLE_CLIENT_ID` in the frontend build environment. See `backend/.env.example` and `frontend/.env.example`.
+3. Redeploy both services after setting the variables. Without the backend setting, Google ID tokens are rejected; without the frontend setting, the Google button is disabled.
+4. Email/password accounts are never silently linked by matching email. Sign in to the existing Whisper account, then use **Profile → Google account** to link the same verified Google email. Google profile images are not copied to Atlas; avatars use the app's default until a custom picture is uploaded.
+
+The `googleSub` identity is unique per user. A Google-only account has no password hash and cannot sign in through the password endpoint.
 
 ### Rate-limit dashboard
 

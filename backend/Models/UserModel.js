@@ -39,7 +39,8 @@ const userSchema = new mongoose.Schema(
     userId: { type: String, unique: true, default: generateShortId },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    password: { type: String, required: true }, // stored as a bcrypt hash
+    password: { type: String, required: false }, // stored as a bcrypt hash for password accounts
+    googleSub: { type: String, unique: true, sparse: true },
     profilePictureId: { type: mongoose.Schema.Types.ObjectId, default: null },
     role: { type: String, default: 'user' },
     // soft-delete marker: keeps the user row so past messages still attribute to a userId

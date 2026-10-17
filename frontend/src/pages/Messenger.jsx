@@ -112,7 +112,7 @@ function clampPreview(text, limit = 72) {
 }
 
 export default function Messenger() {
-  const { user, logout, refresh } = useAuth()
+  const { user, logout, refresh, linkGoogle } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const [conversations, setConversations] = useState([])
   const [unreadInfo, setUnreadInfo] = useState({ counts: {}, total: 0, recent: [] })
@@ -847,6 +847,12 @@ export default function Messenger() {
     }
   }
 
+  const handleGoogleLink = async (credential, nonce) => {
+    await linkGoogle(credential, nonce)
+    await refresh()
+    showToast('Google account linked')
+  }
+
   const copyUserId = async () => {
     try {
       await navigator.clipboard.writeText(user.userId)
@@ -1521,6 +1527,7 @@ export default function Messenger() {
         isSaving={isSaving}
         onDeleteAccount={handleAccountDelete}
         onPictureChanged={refresh}
+        onLinkGoogle={handleGoogleLink}
       />
 
       <BlockedUsersModal
