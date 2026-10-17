@@ -353,8 +353,16 @@ messageRoute.get(
       const senderIds = new Set(unreadMessages.map((message) => message.senderId))
       const owner = await UserModel.findOne({ userId: me }).select('protectedConversations').lean()
 
-      const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name isDeleted')
-      const senderMap = new Map(senders.map((sender) => [sender.userId, sender.isDeleted ? 'Deleted user' : sender.name]))
+      const senders = await UserModel.find({ userId: { $in: [...senderIds] } }).select('userId name isDeleted profilePictureId')
+      const senderMap = new Map(
+        senders.map((sender) => [
+          sender.userId,
+          {
+            name: sender.isDeleted ? 'Deleted user' : sender.name,
+            profilePictureId: sender.isDeleted ? null : sender.profilePictureId?.toString() || null,
+          },
+        ])
+      )
 
       const recent = unreadMessages.map((message) => {
         const protection = getConversationProtection(owner, message.senderId)
@@ -362,7 +370,8 @@ messageRoute.get(
         return {
           _id: safeMessage._id,
           senderId: safeMessage.senderId,
-          senderName: senderMap.get(safeMessage.senderId) || 'Unknown',
+          senderName: senderMap.get(safeMessage.senderId)?.name || 'Unknown',
+          senderProfilePictureId: senderMap.get(safeMessage.senderId)?.profilePictureId || null,
           receiverId: safeMessage.receiverId,
           text: safeMessage.text || '[Protected message]',
           createdAt: safeMessage.createdAt,
@@ -416,8 +425,12 @@ messageRoute.get(
       // attach each person's name for display
       const withNames = await Promise.all(
         others.map(async (o) => {
-          const u = await UserModel.findOne({ userId: o.userId }).select('name isDeleted')
-          return { ...o, name: u ? (u.isDeleted ? 'Deleted user' : u.name) : 'Unknown' }
+          const u = await UserModel.findOne({ userId: o.userId }).select('name isDeleted profilePictureId')
+          return {
+            ...o,
+            name: u ? (u.isDeleted ? 'Deleted user' : u.name) : 'Unknown',
+            profilePictureId: u && !u.isDeleted ? u.profilePictureId?.toString() || null : null,
+          }
         })
       )
 

@@ -41,6 +41,7 @@ export async function authenticate(userCred) {
       name: user.name,
       email: user.email,
       role: user.role,
+      profilePictureId: user.profilePictureId?.toString() || null,
     },
   }
 }

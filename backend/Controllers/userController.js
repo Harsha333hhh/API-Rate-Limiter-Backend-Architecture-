@@ -37,5 +37,6 @@ export async function register(data) {
     name: savedUser.name,
     email: savedUser.email,
     role: savedUser.role,
+    profilePictureId: savedUser.profilePictureId?.toString() || null,
   }
 }

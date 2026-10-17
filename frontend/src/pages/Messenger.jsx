@@ -118,6 +118,7 @@ export default function Messenger() {
   const [unreadInfo, setUnreadInfo] = useState({ counts: {}, total: 0, recent: [] })
   const [activeId, setActiveId] = useState('')
   const [activeName, setActiveName] = useState('')
+  const [activeProfilePictureId, setActiveProfilePictureId] = useState(null)
   const [messages, setMessages] = useState([])
   const [protection, setProtection] = useState({ own: null, peer: null })
   const [protectionBusy, setProtectionBusy] = useState(false)
@@ -541,6 +542,7 @@ export default function Messenger() {
     updateProtection({ own: null, peer: null })
     setActiveId('')
     setActiveName('')
+    setActiveProfilePictureId(null)
     setMessages([])
     setText('')
     setRl(null)
@@ -598,6 +600,7 @@ export default function Messenger() {
     privateKeyRef.current = null
     updateProtection({ own: null, peer: null })
     setActiveId('')
+    setActiveProfilePictureId(null)
     setMessages([])
   }, [user?.userId])
 
@@ -748,6 +751,7 @@ export default function Messenger() {
     setMessages([])
     setActiveId(conversation.userId)
     setActiveName(conversation.name)
+    setActiveProfilePictureId(conversation.profilePictureId || null)
     setSearchId('')
     setRl(null)
     setRateLimitExplanation('')
@@ -881,7 +885,12 @@ export default function Messenger() {
         className="w-full text-left rounded-3xl border border-line bg-raised hover:bg-primary-soft transition p-4"
       >
         <div className="flex items-center gap-3">
-          <Avatar name={user.name} size="md" />
+          <Avatar
+            name={user.name}
+            size="md"
+            userId={user.userId}
+            profilePictureId={user.profilePictureId}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-semibold text-text truncate">{user.name}</span>
@@ -1045,7 +1054,12 @@ export default function Messenger() {
                   className="flex items-start gap-3 flex-1 text-left"
                   style={{ background: 'transparent', border: 0 }}
                 >
-                  <Avatar name={conversation.name} size="sm" />
+                  <Avatar
+                    name={conversation.name}
+                    size="sm"
+                    userId={conversation.userId}
+                    profilePictureId={conversation.profilePictureId}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2 min-w-0">
                       <span className="font-semibold text-sm text-text truncate">{conversation.name}</span>
@@ -1138,6 +1152,14 @@ export default function Messenger() {
                 <path d="m15 18-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
+          )}
+          {activeId && (
+            <Avatar
+              name={activeName}
+              size="sm"
+              userId={activeId}
+              profilePictureId={activeProfilePictureId}
+            />
           )}
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-[0.24em] text-muted mb-1">Current chat</div>
@@ -1305,7 +1327,12 @@ export default function Messenger() {
                       className="w-full text-left px-4 py-4 border-b border-line/70 last:border-b-0 hover:bg-raised transition"
                     >
                       <div className="flex items-start gap-3">
-                        <Avatar name={item.senderName} size="sm" />
+                        <Avatar
+                          name={item.senderName}
+                          size="sm"
+                          userId={item.senderId}
+                          profilePictureId={item.senderProfilePictureId}
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
@@ -1493,6 +1520,7 @@ export default function Messenger() {
         onSave={handleUpdateProfile}
         isSaving={isSaving}
         onDeleteAccount={handleAccountDelete}
+        onPictureChanged={refresh}
       />
 
       <BlockedUsersModal

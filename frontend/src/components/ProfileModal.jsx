@@ -2,10 +2,21 @@ import { useEffect, useState } from 'react'
 import Avatar from './Avatar.jsx'
 import { api } from '../lib/api.js'
 
-export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, onDeleteAccount }) {
+export default function ProfileModal({
+  isOpen,
+  user,
+  onClose,
+  onSave,
+  isSaving,
+  onDeleteAccount,
+  onPictureChanged,
+}) {
   const [name, setName] = useState(user?.name || '')
   const [error, setError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pictureFile, setPictureFile] = useState(null)
+  const [picturePreview, setPicturePreview] = useState('')
+  const [pictureBusy, setPictureBusy] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -13,6 +24,16 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
       setError('')
     }
   }, [isOpen, user])
+
+  useEffect(() => {
+    if (!pictureFile) {
+      setPicturePreview('')
+      return undefined
+    }
+    const previewUrl = URL.createObjectURL(pictureFile)
+    setPicturePreview(previewUrl)
+    return () => URL.revokeObjectURL(previewUrl)
+  }, [pictureFile])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -44,6 +65,56 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
     }
   }
 
+  const handlePictureSelection = (event) => {
+    const file = event.target.files?.[0] || null
+    event.target.value = ''
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setPictureFile(null)
+      setError('Choose a JPEG, PNG, or WebP image')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setPictureFile(null)
+      setError('Profile pictures must be 2 MB or smaller')
+      return
+    }
+    setError('')
+    setPictureFile(file)
+  }
+
+  const handlePictureUpload = async () => {
+    if (!pictureFile || pictureBusy) return
+    setPictureBusy(true)
+    setError('')
+    try {
+      await api.post('/user-api/me/profile-picture', pictureFile, {
+        headers: { 'Content-Type': pictureFile.type },
+      })
+      setPictureFile(null)
+      await onPictureChanged()
+    } catch (e) {
+      setError(e.response?.data?.message || 'Failed to upload profile picture')
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  const handlePictureRemoval = async () => {
+    if (pictureBusy) return
+    setPictureBusy(true)
+    setError('')
+    try {
+      await api.delete('/user-api/me/profile-picture')
+      setPictureFile(null)
+      await onPictureChanged()
+    } catch (e) {
+      setError(e.response?.data?.message || 'Failed to remove profile picture')
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
   if (!isOpen) return null
 
   return (
@@ -53,11 +124,58 @@ export default function ProfileModal({ isOpen, user, onClose, onSave, isSaving, 
 
         <div className="space-y-4">
           <div className="flex items-center gap-4 mb-6 pb-4 border-b border-line">
-            <Avatar name={name || 'U'} size="lg" />
+            <div className="relative h-16 w-16 shrink-0">
+              {picturePreview ? (
+                <img
+                  src={picturePreview}
+                  alt="Selected profile picture preview"
+                  className="h-16 w-16 rounded-full object-cover"
+                />
+              ) : (
+                <Avatar
+                  name={name || 'U'}
+                  size="lg"
+                  userId={user?.userId}
+                  profilePictureId={user?.profilePictureId}
+                />
+              )}
+            </div>
             <div>
               <div className="text-sm text-muted">Display name</div>
               <div className="text-lg font-semibold text-text">{name || 'Unnamed'}</div>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="label block">Profile picture</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handlePictureSelection}
+              disabled={pictureBusy}
+              className="block w-full text-sm text-text-secondary file:mr-3 file:rounded-xl file:border-0 file:bg-primary-soft file:px-3 file:py-2 file:font-medium file:text-primary"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handlePictureUpload}
+                disabled={!pictureFile || pictureBusy}
+                className="btn-primary flex-1"
+              >
+                {pictureBusy ? 'Saving picture…' : 'Upload picture'}
+              </button>
+              {user?.profilePictureId && (
+                <button
+                  type="button"
+                  onClick={handlePictureRemoval}
+                  disabled={pictureBusy}
+                  className="btn-ghost flex-1"
+                >
+                  Remove picture
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-muted">JPEG, PNG, or WebP; maximum 2 MB.</p>
           </div>
 
           <div>
